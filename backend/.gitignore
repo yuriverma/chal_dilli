@@ -1,2 +1,33 @@
+# Virtual environments
+venv/
 .venv/
+env/
+.env/
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large model files (optional - uncomment if you don't want to track models)
+# models/*.gguf
+# models/*/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
