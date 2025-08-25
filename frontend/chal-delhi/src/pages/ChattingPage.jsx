@@ -47,7 +47,7 @@ const ChattingPage = () => {
         backgroundRepeat: "no-repeat",
       }}
     >
-      {/* Title */}
+
       <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-30">
         <h1 className="text-5xl font-bold text-amber-900 text-center mb-2">
           Chal Dilli
