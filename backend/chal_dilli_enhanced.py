@@ -6,6 +6,7 @@ Delhi's Smart Big Brother AI Assistant
 
 import re
 import random
+import os
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 from data_scraper import DelhiDataScraper
@@ -13,6 +14,7 @@ from enhanced_metro_router import EnhancedMetroRouter
 from hinglish_conversation import HinglishConversationManager
 from food_recommender import recommend_for_location, recommend_by_area, recommend_for_text_query
 from area_mapper import extract_area_from_query, get_area_coordinates
+from dtc_router import DTCRouter
 
 class ChalDilliEnhanced:
     def __init__(self):
@@ -23,6 +25,20 @@ class ChalDilliEnhanced:
         self.event_data = []
         self.food_data = {}
         self.bus_data = {}
+        
+        # Initialize DTC router
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            gtfs_dir = os.path.normpath(os.path.join(base_dir, "..", "data", "GTFS"))
+            if os.path.exists(gtfs_dir):
+                self.dtc_router = DTCRouter(gtfs_dir)
+                print(f"✅ DTC router loaded with GTFS data from {gtfs_dir}")
+            else:
+                print(f"⚠️ DTC GTFS directory not found: {gtfs_dir}")
+                self.dtc_router = None
+        except Exception as e:
+            print(f"⚠️ Error loading DTC router: {e}")
+            self.dtc_router = None
         
         # Initialize with data
         self.update_data()
@@ -332,27 +348,91 @@ class ChalDilliEnhanced:
             "fastest metro", "fastest route"
         ]
         
-        # Route patterns
-        route_patterns = [
-            r"from\s+\w+\s+to\s+\w+",
-            r"\w+\s+se\s+\w+\s+(kaise|how|route)",
-            r"how\s+to\s+(go|reach|get)\s+",
-            r"kaise\s+(jaana|jao|jaiye|pahunch)",
-            r"fastest\s+(route|way|metro)",
-            r"metro\s+route",
-            r"tell\s+me\s+(the\s+)?(fastest\s+)?(metro\s+)?route"
+        # Strong bus/DTC indicators - if these are present, it's NOT a metro query
+        bus_indicators = [
+            "dtc", "bus route", "bus only", "only bus",
+            "dtc bus", "dtc route", "bus se", "bus mein"
         ]
+        
+        # If explicit bus keywords are present, it's a bus query, not metro
+        if any(kw in query_lower for kw in bus_indicators):
+            return False
         
         # Check for metro keywords
         if any(kw in query_lower for kw in metro_keywords):
             return True
         
-        # Check for route patterns
-        if any(re.search(pattern, query_lower) for pattern in route_patterns):
-            # Verify it's actually a route query by trying to extract route
+        # English route patterns that imply metro (when no bus keywords)
+        english_metro_patterns = [
+            r"route\s+from\s+\w+",
+            r"metro\s+from\s+\w+",
+            r"how\s+to\s+go\s+from\s+\w+.*\s+by\s+metro",
+            r"fastest\s+metro\s+from\s+\w+",
+            r"metro\s+route\s+between\s+\w+",
+            r"route\s+between\s+\w+.*\s+metro",
+        ]
+        
+        # Hinglish route patterns
+        hinglish_metro_patterns = [
+            r"\w+\s+se\s+\w+\s+(kaise|how|route)",
+            r"kaise\s+(jaana|jao|jaiye|pahunch)",
+            r"fastest\s+(route|way|metro)",
+        ]
+        
+        # Generic route patterns (only if they look like metro, not bus)
+        generic_route_patterns = [
+            r"from\s+\w+\s+to\s+\w+",  # "from X to Y" - common for metro
+            r"how\s+to\s+(go|reach|get)\s+",  # "how to go from X to Y"
+            r"tell\s+me\s+(the\s+)?(fastest\s+)?(metro\s+)?route",
+        ]
+        
+        # Check English metro patterns
+        if any(re.search(pattern, query_lower) for pattern in english_metro_patterns):
             parsed = self.enhanced_router.extract_route_query(query)
             if parsed:
                 return True
+        
+        # Check Hinglish metro patterns
+        if any(re.search(pattern, query_lower) for pattern in hinglish_metro_patterns):
+            parsed = self.enhanced_router.extract_route_query(query)
+            if parsed:
+                return True
+        
+        # Check generic route patterns (but exclude if it's clearly bus or food)
+        if any(re.search(pattern, query_lower) for pattern in generic_route_patterns):
+            # Exclude if it's clearly a bus query
+            if not any(kw in query_lower for kw in ["bus", "dtc", "food", "eat", "restaurant"]):
+                parsed = self.enhanced_router.extract_route_query(query)
+                if parsed:
+                    return True
+        
+        return False
+    
+    def _is_bus_query(self, query: str) -> bool:
+        """Check if query is about bus/DTC routing"""
+        query_lower = query.lower()
+        
+        # Strong bus indicators
+        bus_keywords = [
+            "dtc", "bus", "bus route", "bus se", "bus mein",
+            "only bus", "bus only", "dtc bus", "dtc route",
+            "bus from", "bus to", "bus kaise", "bus se jaana"
+        ]
+        
+        # Check for explicit bus keywords
+        if any(kw in query_lower for kw in bus_keywords):
+            return True
+        
+        # Check for route patterns with bus context
+        route_patterns = [
+            r"dtc\s+(route|bus|se)",
+            r"bus\s+(route|from|to|se)",
+            r"only\s+bus",
+            r"bus\s+only"
+        ]
+        
+        if any(re.search(pattern, query_lower) for pattern in route_patterns):
+            return True
         
         return False
     
@@ -384,6 +464,62 @@ class ChalDilliEnhanced:
         
         return False
     
+    def _extract_bus_route_query(self, query: str) -> Optional[Dict]:
+        """Extract source and destination from bus route query"""
+        query_lower = query.lower()
+        
+        # Remove bus-specific keywords for route extraction
+        cleaned = re.sub(r'\b(dtc|bus|only bus|bus only)\b', '', query_lower)
+        
+        # Common route patterns
+        route_patterns = [
+            r'(?:from|se)\s+([^?]+?)\s+(?:to|tak)\s+([^?]+)',
+            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how|route)',
+            r'([^?]+?)\s+(?:to|tak)\s+([^?]+)',
+            r'\b([^?]+?)\s+(?:se|from)\s+([^?]+?)\b'
+        ]
+        
+        for pattern in route_patterns:
+            matches = re.findall(pattern, cleaned)
+            if matches:
+                if isinstance(matches[0], tuple) and len(matches[0]) == 2:
+                    src_raw = matches[0][0].strip()
+                    dst_raw = matches[0][1].strip()
+                    # Clean up common words
+                    for word in ["metro", "station", "bus", "stop", "stand"]:
+                        src_raw = re.sub(rf'\b{word}\b', '', src_raw).strip()
+                        dst_raw = re.sub(rf'\b{word}\b', '', dst_raw).strip()
+                    return {"from": src_raw, "to": dst_raw}
+        
+        return None
+    
+    def get_dtc_route_response(self, query: str) -> str:
+        """Get DTC bus route response"""
+        if not self.dtc_router:
+            return "Sorry bhai, DTC bus routing abhi available nahi hai. Metro route try karo!"
+        
+        route_info = self._extract_bus_route_query(query)
+        if not route_info:
+            return "Bhai, bus route ke liye source aur destination mention karo, jaise 'dtc bus route from dwarka to kashmere gate'"
+        
+        try:
+            result = self.dtc_router.get_route(route_info["from"], route_info["to"])
+            
+            if "error" in result:
+                return f"Sorry bhai, {result['error']}"
+            if "message" in result:
+                return result["message"]
+            
+            # Format response in Delhi-friendly Hinglish style
+            response = f"Bhai, {result['from']} se {result['to']} tak ka best DTC bus route:\n\n"
+            response += result["human_text"]
+            response += f"\n\nTotal time: ~{result['duration_min']} min • Distance: {result['distance_km']} km"
+            response += "\n\nNote: DTC buses cover entire Delhi. Daily/weekly/monthly passes available!"
+            
+            return response
+        except Exception as e:
+            return f"Sorry bhai, route calculate karte waqt error aaya: {str(e)}"
+    
     def generate_response(self, query: str) -> str:
         """Generate response based on query with real-time data"""
         query_lower = query.lower()
@@ -396,12 +532,50 @@ class ChalDilliEnhanced:
         if any(word in query_lower for word in ["hi", "hello", "hey", "namaste", "kaise ho", "how are you"]):
             return self.get_greeting_response()
         
+        # Check for bus/DTC queries first (before metro to avoid conflicts)
+        if self._is_bus_query(query):
+            route_info = self._extract_bus_route_query(query)
+            if route_info:
+                return self.get_dtc_route_response(query)
+            # If bus keywords but no route, give general bus info
+            if any(kw in query_lower for kw in ["bus", "dtc", "transport"]):
+                return self.get_bus_response()
+        
         # Check for metro queries (before food to avoid conflicts)
         if self._is_metro_query(query):
             parsed = self.enhanced_router.extract_route_query(query)
             if parsed:
                 route_result = self.enhanced_router.get_route_response(query)
-                return route_result["response"]
+                metro_response = route_result["response"]
+                
+                # Add food recommendations for destination station
+                if route_result.get("has_route") and route_result.get("route_data"):
+                    try:
+                        destination_station = route_result["route_data"].get("to", "")
+                        if destination_station:
+                            # Get station coordinates
+                            coords = self._get_station_coordinates(destination_station)
+                            
+                            if coords:
+                                # Get food recommendations near destination
+                                lat, lon = coords
+                                food_recommendations = recommend_for_location(lat, lon, radius_km=3)
+                                
+                                # Format and append food recommendations
+                                if food_recommendations and (food_recommendations.get('safe_pick') or food_recommendations.get('local_favourite')):
+                                    language = route_result.get("language", "hinglish")
+                                    food_text = self._format_metro_food_recommendations(
+                                        food_recommendations, 
+                                        destination_station, 
+                                        language
+                                    )
+                                    if food_text:
+                                        metro_response += food_text
+                    except Exception as e:
+                        # Silently fail - food recommendations are optional
+                        print(f"Note: Could not add food recommendations: {e}")
+                
+                return metro_response
             # If metro keywords but no route, give general metro info
             if any(kw in query_lower for kw in ["metro", "delhi metro", "train", "subway"]):
                 return self.get_metro_response()
@@ -432,9 +606,11 @@ class ChalDilliEnhanced:
         if any(word in query_lower for word in ["visit", "see", "attraction", "place", "fort", "temple", "what attractions"]):
             return self.get_attraction_response()
         
-        # Check for bus
+        # Check for general bus info (only if not already handled as route query)
         if any(word in query_lower for word in ["bus", "dtc", "transport", "how do i travel by bus"]):
-            return self.get_bus_response()
+            # Only return general info if it's not a route query
+            if not self._is_bus_query(query) or not self._extract_bus_route_query(query):
+                return self.get_bus_response()
         
         # Small-talk fallback using Hinglish dataset
         try:
@@ -471,24 +647,105 @@ class ChalDilliEnhanced:
     def get_data_summary(self) -> Dict:
         """Get summary of current data"""
         return self.scraper.get_data_summary()
+    def _get_station_coordinates(self, station_name: str) -> Optional[Tuple[float, float]]:
+        """
+        Get coordinates for a metro station.
+        Tries GTFS data first, then falls back to area mapper.
         
-    def get_metro_info(self, source, destination):
-    # Scrape fare + time
-        travel_info = self.scraper.get_fare_and_time(source, destination)
-
-    # Get route
-        route = self.enhanced_router.get_route(source, destination)
-
-    # Format response
-        response = f"🚇 Metro Routes from {source} to {destination} are as follows:\n"
-        for step in route["route"]:
-            response += f"- {step['name']} from {step['source']} to {step['destination']}\n"
-
-        response += f"\n⏱️ Estimated Time: {travel_info['time']}"
-        response += f"\n💰 Fare: {travel_info['fare']}\n"
-        response += "\n✨ Nearby events and food recommendations coming soon 🍴🎉"
-
-        return response
+        Args:
+            station_name: Station name (normalized)
+        
+        Returns:
+            Tuple of (lat, lon) or None if not found
+        """
+        # Try to get from metro router's GTFS data
+        if self.enhanced_router.metro_router:
+            try:
+                # Normalize station name similar to how metro router does it
+                station_id = self.enhanced_router.metro_router.find_best_station_id(station_name)
+                if station_id and station_id in self.enhanced_router.metro_router.stops:
+                    stop_info = self.enhanced_router.metro_router.stops[station_id]
+                    return (stop_info["lat"], stop_info["lon"])
+            except Exception as e:
+                # Silently fail and try fallback
+                pass
+        
+        # Fallback: try area mapper
+        coords = get_area_coordinates(station_name)
+        if coords:
+            return coords
+        
+        return None
+    
+    def _format_metro_food_recommendations(self, recommendations: Dict, destination_station: str, language: str = "hinglish") -> str:
+        """
+        Format food recommendations for metro destination.
+        
+        Args:
+            recommendations: Dictionary with 'safe_pick' and 'local_favourite'
+            destination_station: Name of destination station
+            language: Language for formatting
+        
+        Returns:
+            Formatted text string
+        """
+        safe_pick = recommendations.get('safe_pick')
+        local_favourite = recommendations.get('local_favourite')
+        
+        if not safe_pick and not local_favourite:
+            return ""  # No recommendations available
+        
+        # Build header based on language
+        if language == "hindi":
+            header = f"\n\n{destination_station} pahunchne ke baad, aap ye try kar sakte hain:"
+        elif language == "hinglish":
+            header = f"\n\nWhen you reach {destination_station}, you can also try:"
+        else:  # english
+            header = f"\n\nWhen you reach {destination_station}, you can also try:"
+        
+        lines = [header]
+        
+        # Format Safe Pick
+        if safe_pick:
+            sp_name = safe_pick.get('name', '').title()
+            sp_rating = safe_pick.get('rating', 0.0)
+            sp_rating_count = safe_pick.get('rating_count', 0)
+            sp_cuisine = safe_pick.get('famous_food', '')
+            sp_zomato = safe_pick.get('zomato_url', '')
+            
+            safe_pick_line = f"Safe pick: {sp_name} – rating {sp_rating:.1f}"
+            if sp_rating_count > 0:
+                safe_pick_line += f" ({sp_rating_count} reviews)"
+            if sp_cuisine:
+                safe_pick_line += f", {sp_cuisine}"
+            if sp_zomato:
+                safe_pick_line += f", [Zomato]({sp_zomato})"
+            else:
+                safe_pick_line += ", [Zomato]"
+            
+            lines.append(safe_pick_line)
+        
+        # Format Local Favourite
+        if local_favourite and local_favourite != safe_pick:
+            lf_name = local_favourite.get('name', '').title()
+            lf_rating = local_favourite.get('rating', 0.0)
+            lf_rating_count = local_favourite.get('rating_count', 0)
+            lf_cuisine = local_favourite.get('famous_food', '')
+            lf_zomato = local_favourite.get('zomato_url', '')
+            
+            local_fav_line = f"Local favourite: {lf_name} – rating count {lf_rating_count}"
+            if lf_rating > 0:
+                local_fav_line += f" (rating {lf_rating:.1f})"
+            if lf_cuisine:
+                local_fav_line += f", {lf_cuisine}"
+            if lf_zomato:
+                local_fav_line += f", [Zomato]({lf_zomato})"
+            else:
+                local_fav_line += ", [Zomato]"
+            
+            lines.append(local_fav_line)
+        
+        return "\n".join(lines)
 
 
 # ========== TEST FUNCTION ==========

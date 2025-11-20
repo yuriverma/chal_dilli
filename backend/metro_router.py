@@ -5,7 +5,6 @@ from collections import defaultdict, Counter
 from typing import Dict, List, Tuple, Optional, Set
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    import math
     R = 6371.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -66,7 +65,6 @@ class MetroRouter:
         # Load stops
         self.stops = {}
         self.name_to_stop_ids = defaultdict(list)
-        import csv
         with open(stops_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for r in reader:

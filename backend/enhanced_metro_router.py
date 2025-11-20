@@ -9,6 +9,14 @@ from typing import Dict, List, Optional, Tuple
 from metro_router import MetroRouter
 import os
 
+# Import gate lookup (optional - will gracefully handle if CSV doesn't exist)
+try:
+    from gate_lookup import get_best_gate_for_station, format_gate_suggestion
+    GATE_LOOKUP_AVAILABLE = True
+except ImportError:
+    GATE_LOOKUP_AVAILABLE = False
+    print("⚠️ Gate lookup module not available")
+
 class EnhancedMetroRouter:
     def __init__(self, gtfs_dir: str = None):
         """Initialize with GTFS data directory"""
@@ -119,35 +127,124 @@ class EnhancedMetroRouter:
         """Extract source and destination from query"""
         query_lower = query.lower()
         
-        # Common route patterns (ordered, more specific first)
-        route_patterns = [
-            r'(?:from|se)\s+([^?]+?)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
-            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:ka|kya)\s+(?:route|line|metro)',
-            r'(?:how to|kaise|kahan se|kahan tak|route|way|path)\s+(?:go|jaana|jao|jaiye|reach|pahunch|jaaye|jaun|jaaun)\s+(?:to|tak|mein)\s+([^?]+)',
-            r'(?:which|kaun|kis)\s+(?:line|metro|route)\s+(?:goes|leads|connects)\s+(?:to|tak)\s+([^?]+)',
-            r'([^to]+?)\s+(?:to|tak)\s+([^?]+)',
-            r'(?:how|kaise)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
-            r'([^?]+)\s+(?:ke liye|for)\s+(?:kaun|which)\s+(?:line|route)',
-            # Last resort: plain "X se Y" without verb
-            r'\b([^?]+?)\s+(?:se|from)\s+([^?]+?)\b'
+        # Clean up query - remove common filler words but preserve structure
+        # Remove "please", "tell me", etc. but keep "from", "to", "se", "tak"
+        cleaned = re.sub(r'\b(please|tell me|can you|could you|i want to|i need to)\b', '', query_lower)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        # English patterns (ordered by specificity)
+        english_patterns = [
+            # "route from X to Y"
+            r'route\s+from\s+([^?]+?)\s+to\s+([^?]+)',
+            # "metro from X to Y"
+            r'metro\s+from\s+([^?]+?)\s+to\s+([^?]+)',
+            # "how to go from X to Y by metro"
+            r'how\s+to\s+(?:go|reach|get)\s+from\s+([^?]+?)\s+to\s+([^?]+?)(?:\s+by\s+metro|\s+metro|\?|$)',
+            # "fastest metro from X to Y"
+            r'fastest\s+metro\s+from\s+([^?]+?)\s+to\s+([^?]+)',
+            # "metro route between X and Y"
+            r'metro\s+route\s+between\s+([^?]+?)\s+(?:and|to)\s+([^?]+)',
+            # "route between X and Y metro"
+            r'route\s+between\s+([^?]+?)\s+(?:and|to)\s+([^?]+?)(?:\s+metro)?',
+            # Generic "from X to Y" (must have "from" keyword to avoid false matches)
+            r'from\s+([^?]+?)\s+to\s+([^?]+)',
+            # "route X to Y" (without "from")
+            r'route\s+([^?]+?)\s+to\s+([^?]+)',
+            # "X to Y metro" or "X to Y route"
+            r'([^?]+?)\s+to\s+([^?]+?)(?:\s+(?:metro|route))',
         ]
         
-        for pattern in route_patterns:
+        # Hinglish patterns (ordered by specificity)
+        hinglish_patterns = [
+            # "X se Y tak"
+            r'([^?]+?)\s+se\s+([^?]+?)\s+tak',
+            # "X se Y kaise jaana"
+            r'([^?]+?)\s+se\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
+            # "X se Y ka route"
+            r'([^?]+?)\s+se\s+([^?]+?)\s+(?:ka|kya)\s+(?:route|line|metro)',
+            # "X se Y tak metro"
+            r'([^?]+?)\s+se\s+([^?]+?)\s+tak\s+metro',
+            # "kaise jaana X se Y"
+            r'(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)\s+([^?]+?)\s+se\s+([^?]+)',
+            # Plain "X se Y" (last resort)
+            r'\b([^?]+?)\s+se\s+([^?]+?)\b',
+        ]
+        
+        # Try English patterns first
+        for pattern in english_patterns:
+            matches = re.findall(pattern, cleaned, re.IGNORECASE)
+            if matches:
+                if isinstance(matches[0], tuple) and len(matches[0]) == 2:
+                    src_raw = matches[0][0].strip()
+                    dst_raw = matches[0][1].strip()
+                    # Clean up extracted names
+                    src_raw = self._clean_station_name(src_raw)
+                    dst_raw = self._clean_station_name(dst_raw)
+                    if src_raw and dst_raw:
+                        src = self.normalize_station_name(src_raw)
+                        dst = self.normalize_station_name(dst_raw)
+                        return {"from": src.strip(), "to": dst.strip()}
+        
+        # Try Hinglish patterns
+        for pattern in hinglish_patterns:
             matches = re.findall(pattern, query_lower)
             if matches:
-                if isinstance(matches[0], tuple) and len(matches[0]) == 2:  # from X to Y or X se Y
-                    src_raw = matches[0][0]
-                    dst_raw = matches[0][1]
-                    src = self.normalize_station_name(src_raw)
-                    dst = self.normalize_station_name(dst_raw)
-                    return {"from": src.strip(), "to": dst.strip()}
-                else:  # just destination
-                    dest = self.normalize_station_name(matches[0])
+                if isinstance(matches[0], tuple) and len(matches[0]) == 2:
+                    src_raw = matches[0][0].strip()
+                    dst_raw = matches[0][1].strip()
+                    # Clean up extracted names
+                    src_raw = self._clean_station_name(src_raw)
+                    dst_raw = self._clean_station_name(dst_raw)
+                    if src_raw and dst_raw:
+                        src = self.normalize_station_name(src_raw)
+                        dst = self.normalize_station_name(dst_raw)
+                        return {"from": src.strip(), "to": dst.strip()}
+        
+        # Try destination-only patterns (less common)
+        destination_patterns = [
+            r'(?:how|kaise)\s+(?:to|tak)\s+([^?]+)',
+            r'(?:how to|kaise|kahan se|kahan tak|route|way|path)\s+(?:go|jaana|jao|jaiye|reach|pahunch|jaaye|jaun|jaaun)\s+(?:to|tak|mein)\s+([^?]+)',
+            r'(?:which|kaun|kis)\s+(?:line|metro|route)\s+(?:goes|leads|connects)\s+(?:to|tak)\s+([^?]+)',
+        ]
+        
+        for pattern in destination_patterns:
+            matches = re.findall(pattern, query_lower)
+            if matches:
+                dest_raw = matches[0].strip() if isinstance(matches[0], str) else matches[0][0].strip()
+                dest_raw = self._clean_station_name(dest_raw)
+                if dest_raw:
+                    dest = self.normalize_station_name(dest_raw)
                     return {"from": "current location", "to": dest.strip()}
         
         return None
+    
+    def _clean_station_name(self, name: str) -> str:
+        """Clean extracted station name by removing common filler words and metro-related terms"""
+        if not name:
+            return ""
+        
+        # Remove common filler words that might be captured
+        filler_words = [
+            "the", "a", "an", "by", "via", "through", "using",
+            "route", "metro", "station", "stn", "stop",
+            "please", "tell", "me", "can", "you", "could"
+        ]
+        
+        # Remove trailing/leading filler words
+        words = name.split()
+        # Remove leading fillers
+        while words and words[0].lower() in filler_words:
+            words.pop(0)
+        # Remove trailing fillers
+        while words and words[-1].lower() in filler_words:
+            words.pop()
+        
+        cleaned = " ".join(words).strip()
+        
+        # Remove trailing punctuation
+        cleaned = re.sub(r'[?!.,;:]+$', '', cleaned).strip()
+        
+        return cleaned
     
     def get_route_response(self, query: str, language: str = "auto") -> Dict:
         """Get route response in the detected language"""
@@ -225,6 +322,20 @@ class EnhancedMetroRouter:
             response.append(alt_title)
             response.append(format_route(alt))
         response.append("\nComing soon: Nearby food and events! 🍕🎉")
+        
+        # Add gate suggestion for destination station if available
+        if GATE_LOOKUP_AVAILABLE:
+            try:
+                destination_station = primary.get('to', '')
+                if destination_station:
+                    gate_info = get_best_gate_for_station(destination_station)
+                    if gate_info:
+                        gate_suggestion = format_gate_suggestion(gate_info, language)
+                        response.append(gate_suggestion)
+            except Exception as e:
+                # Silently fail - gate suggestion is optional
+                print(f"Note: Could not add gate suggestion: {e}")
+        
         final = "\n".join(response)
         
         return {

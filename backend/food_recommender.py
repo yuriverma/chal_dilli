@@ -4,11 +4,12 @@ Provides location-based restaurant recommendations using haversine distance.
 """
 
 import pandas as pd
-import numpy as np
 import math
 import os
 import json
+import re
 from typing import List, Dict, Optional, Tuple
+from difflib import SequenceMatcher
 
 # Import map utilities
 try:
@@ -57,6 +58,148 @@ def _load_and_preprocess_data():
 
 # Load data on import
 _df = _load_and_preprocess_data()
+
+# Build area index for Delhi
+def _build_area_index():
+    """
+    Build an index of area names for Delhi with canonical names and variants.
+    Returns a dict mapping variant/token -> canonical area name (from CSV).
+    """
+    # Filter for Delhi areas
+    delhi_df = _df[_df['city'].str.contains('Delhi', case=False, na=False)]
+    
+    # Get unique normalized areas (these are the canonical names from CSV)
+    areas = delhi_df['area'].dropna().unique()
+    
+    # Build index: variant/token -> canonical area name
+    area_index = {}
+    
+    for area in areas:
+        area_normalized = area.lower().strip()
+        if not area_normalized or area_normalized == 'nan':
+            continue
+        
+        # The area itself is a canonical name - map it to itself
+        area_index[area_normalized] = area_normalized
+        
+        # Extract base name and tokens for matching
+        # Split by common separators
+        parts = re.split(r'[\s,]+', area_normalized)
+        
+        # Add individual meaningful parts as variants
+        base_words = {'sector', 'phase', 'block', 'market', 'road', 'nagar', 'colony', 
+                     'vihar', 'enclave', 'new', 'delhi', 'ncr', 'near', 'opposite'}
+        
+        for part in parts:
+            if part and len(part) > 2 and part not in base_words and not part.isdigit():
+                # Map token to canonical area name
+                if part not in area_index:
+                    area_index[part] = area_normalized
+                # Also check if we should prefer a more specific match
+                # (e.g., if "rohini" appears in multiple areas, prefer the one with most matches)
+        
+        # Add n-grams (2-word and 3-word combinations) as variants
+        if len(parts) > 1:
+            for n in [2, 3]:
+                for i in range(len(parts) - n + 1):
+                    ngram = ' '.join(parts[i:i+n])
+                    if ngram not in area_index:
+                        area_index[ngram] = area_normalized
+    
+    return area_index
+
+# Build area index on import
+_area_index = _build_area_index()
+
+# Debug flag (can be enabled for troubleshooting)
+_DEBUG_AREA_DETECTION = False
+
+def _debug_log(message: str):
+    """Optional debug logging for area detection."""
+    if _DEBUG_AREA_DETECTION:
+        print(f"[AREA_DEBUG] {message}")
+
+def _similarity_ratio(a: str, b: str) -> float:
+    """Calculate similarity ratio between two strings (0.0 to 1.0)."""
+    return SequenceMatcher(None, a, b).ratio()
+
+def _extract_area_from_query(query: str) -> Optional[Tuple[str, str]]:
+    """
+    Extract area name from natural language query.
+    
+    Args:
+        query: User query text
+    
+    Returns:
+        Tuple of (canonical_area_name, match_type) or None if no match found.
+        match_type can be 'exact', 'token', 'fuzzy', or 'ngram'
+    """
+    query_lower = query.lower().strip()
+    _debug_log(f"Processing query: '{query}'")
+    
+    # Step 1: Try exact match
+    if query_lower in _area_index:
+        canonical = query_lower
+        _debug_log(f"Exact match found: '{canonical}'")
+        return (canonical, 'exact')
+    
+    # Step 2: Tokenize query and try token/ngram matching
+    # Remove common food/query words
+    stop_words = {'food', 'recommendations', 'recommendation', 'best', 'good', 'restaurant', 
+                  'restaurants', 'cafe', 'cafes', 'in', 'near', 'around', 'at', 'for', 
+                  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'from', 'momos', 'pizza',
+                  'chinese', 'north', 'indian', 'south', 'italian', 'fast'}
+    
+    # Tokenize by splitting on whitespace and punctuation
+    tokens = re.findall(r'\b\w+\b', query_lower)
+    meaningful_tokens = [t for t in tokens if t not in stop_words and len(t) > 2]
+    
+    _debug_log(f"Meaningful tokens: {meaningful_tokens}")
+    
+    # Try matching individual tokens
+    for token in meaningful_tokens:
+        if token in _area_index:
+            canonical = _area_index[token]  # Get canonical area name
+            _debug_log(f"Token match found: '{token}' -> '{canonical}'")
+            return (canonical, 'token')
+    
+    # Try matching n-grams (2-word and 3-word combinations)
+    for n in [2, 3]:
+        for i in range(len(meaningful_tokens) - n + 1):
+            ngram = ' '.join(meaningful_tokens[i:i+n])
+            if ngram in _area_index:
+                canonical = _area_index[ngram]
+                _debug_log(f"N-gram match found: '{ngram}' -> '{canonical}'")
+                return (canonical, 'ngram')
+    
+    # Step 3: Try fuzzy matching with high confidence threshold
+    best_match = None
+    best_score = 0.0
+    threshold = 0.7  # Require at least 70% similarity
+    
+    # Check against all canonical area names
+    for canonical in _area_index.keys():
+        # Try exact match against canonical
+        score = _similarity_ratio(query_lower, canonical)
+        if score > best_score:
+            best_score = score
+            best_match = canonical
+        
+        # Try matching against longest meaningful token
+        if meaningful_tokens:
+            longest_token = max(meaningful_tokens, key=len)
+            if len(longest_token) >= 4:  # Only for substantial tokens
+                score = _similarity_ratio(longest_token, canonical)
+                if score > best_score:
+                    best_score = score
+                    best_match = canonical
+    
+    if best_match and best_score >= threshold:
+        _debug_log(f"Fuzzy match found: '{best_match}' (score: {best_score:.2f})")
+        return (best_match, 'fuzzy')
+    
+    _debug_log("No area match found")
+    return None
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -269,25 +412,36 @@ def recommend_for_location(lat: float, lon: float, radius_km: float = 5) -> Dict
 
 def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
     """
-    Attempt to parse area from query and recommend by area.
+    Attempt to parse area from natural language query and recommend by area.
+    Improved area detection supports queries like:
+    - "food recommendations in rohini"
+    - "best food in rohini"
+    - "momos in rohini"
+    - "rohini sector 9"
     
     Args:
-        query: Text query (attempts to match against area column)
+        query: Text query (attempts to extract area name from natural language)
         city: City name (default: "Delhi")
     
     Returns:
         Dictionary with recommendations or None if area not found
     """
-    query_lower = query.lower().strip()
+    # Extract area from query using improved detection
+    area_result = _extract_area_from_query(query)
     
-    # Try exact match against area column
-    matching_rows = _df[_df['area'] == query_lower]
+    if area_result:
+        canonical_area, match_type = area_result
+        _debug_log(f"Using area '{canonical_area}' (match type: {match_type})")
+        
+        # Get recommendations using the canonical area name
+        result = recommend_by_area(canonical_area, city)
+        
+        # If we got results, return them
+        if result.get('safe_pick') or result.get('local_favourite'):
+            return result
     
-    if len(matching_rows) > 0:
-        area = matching_rows.iloc[0]['area']
-        return recommend_by_area(area, city)
-    
-    # If no exact match, return None
+    # If no area match found or no results, return None
+    _debug_log("No recommendations found")
     return {
         'safe_pick': None,
         'local_favourite': None
