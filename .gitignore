@@ -107,10 +107,11 @@ frontend/chal-delhi/node_modules/
 frontend/chal-delhi/dist/
 frontend/chal-delhi/.DS_Store
 
-# Data files (keep GTFS data)
-data/*.csv
+# Data files (keep required data)
 data/*.json
 data/*.xml
+!data/food_data.csv
+!data/hinglish_smalltalk.csv
 !data/DMRC_GTFS (1)/
 
 # Temporary files

@@ -10,18 +10,42 @@ from metro_router import MetroRouter
 import os
 
 class EnhancedMetroRouter:
-    def __init__(self, gtfs_dir: str = "../data/DMRC_GTFS (1)"):
+    def __init__(self, gtfs_dir: str = None):
         """Initialize with GTFS data directory"""
+        # Resolve GTFS path relative to this file if not provided
+        if gtfs_dir is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            gtfs_dir = os.path.normpath(os.path.join(base_dir, "..", "data", "DMRC_GTFS (1)"))
         self.gtfs_dir = gtfs_dir
         self.metro_router = None
+        
+        # Common station aliases to improve matching
+        self.station_aliases: Dict[str, str] = {
+            "aerocity": "delhi aerocity",
+            "aero city": "delhi aerocity",
+            "delhi aerocity": "delhi aerocity",
+            "igi airport": "igi airport",
+            "airport": "igi airport",
+            "cp": "rajiv chowk",
+            "connaught place": "rajiv chowk",
+            "janakpuri west": "janak puri west",
+            "janakpuri w": "janak puri west",
+            "janak puri w": "janak puri west",
+            "dwarka mor": "dwarka mor",
+            "dwarka morh": "dwarka mor",
+            "aiims": "aiims",
+            "kashmere gate": "kashmere gate",
+            "new delhi": "new delhi",
+        }
+        
         self._load_router()
         
         # Language detection patterns
         self.hindi_patterns = [
             r'[\u0900-\u097F]',  # Devanagari script
-            r'\b(jaana|jao|jaiye|pahunch|pahuchna|station|stn|metro|line|route)\b',
+            r'\b(jaana|jao|jaiye|pahunch|pahuchna|station|stn|metro|line|route|jaaye|jaun|jaaun)\b',
             r'\b(kahan|kaise|kya|kaun|kis|kisne|kisko|kiski|kiski|kisne)\b',
-            r'\b(mein|se|ko|ka|ki|ke|par|pe|se|tak|aur|ya|phir|fir)\b'
+            r'\b(mein|se|ko|ka|ki|ke|par|pe|se|tak|aur|ya|phir|fir|hai|hoga)\b'
         ]
         
         # Common Delhi destinations with coordinates for nearby recommendations
@@ -77,33 +101,51 @@ class EnhancedMetroRouter:
         else:
             return "english"
     
+    def normalize_station_name(self, name: str) -> str:
+        """Map common aliases and clean station names for better matching"""
+        n = name.strip().lower()
+        # Remove trailing punctuation and helper words
+        n = re.sub(r'[?!.]+$', '', n).strip()
+        for word in [" metro station", " station", " hai", " hoga", " please"]:
+            if n.endswith(word):
+                n = n[: -len(word)].strip()
+        # Remove the word 'station' if user added it
+        n = n.replace(" metro station", "").replace(" station", "").strip()
+        if n in self.station_aliases:
+            return self.station_aliases[n]
+        return n
+    
     def extract_route_query(self, query: str) -> Optional[Dict]:
         """Extract source and destination from query"""
         query_lower = query.lower()
         
-        # Common route patterns
+        # Common route patterns (ordered, more specific first)
         route_patterns = [
             r'(?:from|se)\s+([^?]+?)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye)',
+            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
             r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:ka|kya)\s+(?:route|line|metro)',
-            r'(?:how to|kaise|kahan se|kahan tak|route|way|path)\s+(?:go|jaana|jao|jaiye|reach|pahunch)\s+(?:to|tak|mein)\s+([^?]+)',
+            r'(?:how to|kaise|kahan se|kahan tak|route|way|path)\s+(?:go|jaana|jao|jaiye|reach|pahunch|jaaye|jaun|jaaun)\s+(?:to|tak|mein)\s+([^?]+)',
             r'(?:which|kaun|kis)\s+(?:line|metro|route)\s+(?:goes|leads|connects)\s+(?:to|tak)\s+([^?]+)',
             r'([^to]+?)\s+(?:to|tak)\s+([^?]+)',
             r'(?:how|kaise)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye)',
+            r'([^?]+)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
             r'([^?]+)\s+(?:ke liye|for)\s+(?:kaun|which)\s+(?:line|route)',
-            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye)\s+(?:hai|hoga)'
+            # Last resort: plain "X se Y" without verb
+            r'\b([^?]+?)\s+(?:se|from)\s+([^?]+?)\b'
         ]
         
         for pattern in route_patterns:
             matches = re.findall(pattern, query_lower)
             if matches:
-                if len(matches[0]) == 2:  # from X to Y
-                    return {"from": matches[0][0].strip(), "to": matches[0][1].strip()}
+                if isinstance(matches[0], tuple) and len(matches[0]) == 2:  # from X to Y or X se Y
+                    src_raw = matches[0][0]
+                    dst_raw = matches[0][1]
+                    src = self.normalize_station_name(src_raw)
+                    dst = self.normalize_station_name(dst_raw)
+                    return {"from": src.strip(), "to": dst.strip()}
                 else:  # just destination
-                    dest = matches[0].strip()
-                    # Try to find a common source
-                    return {"from": "current location", "to": dest}
+                    dest = self.normalize_station_name(matches[0])
+                    return {"from": "current location", "to": dest.strip()}
         
         return None
     
@@ -119,15 +161,28 @@ class EnhancedMetroRouter:
         # Try to get route using Metro router
         if self.metro_router:
             try:
-                route_result = self.metro_router.human_route(
-                    route_info["from"], 
-                    route_info["to"]
+                # Primary: low-fare preference (discourage Airport Express)
+                primary = self.metro_router.human_route(
+                    route_info["from"], route_info["to"], smart_card=True, airport_penalty_min=9.0
                 )
+                alt = None
+                # Alternative: fastest (no extra penalty)
+                alt_candidate = self.metro_router.human_route(
+                    route_info["from"], route_info["to"], smart_card=True, airport_penalty_min=0.0
+                )
+                if (
+                    "error" not in primary and "error" not in alt_candidate and
+                    (
+                        primary.get("uses_airport_express", False) != alt_candidate.get("uses_airport_express", False)
+                        or primary.get("duration_min") != alt_candidate.get("duration_min")
+                    )
+                ):
+                    alt = alt_candidate
                 
-                if "error" in route_result:
+                if "error" in primary:
                     return self._get_fallback_route_response(route_info, language)
                 
-                return self._format_route_response(route_result, language)
+                return self._format_dual_route_response(primary, alt, language)
                 
             except Exception as e:
                 print(f"Error in Metro routing: {e}")
@@ -135,47 +190,46 @@ class EnhancedMetroRouter:
         else:
             return self._get_fallback_route_response(route_info, language)
     
-    def _format_route_response(self, route_result: Dict, language: str) -> Dict:
-        """Format route response in the specified language"""
-        if language == "hindi":
-            response = f"Bhai, {route_result['from']} se {route_result['to']} tak ka best route:\n"
-            response += f"Distance: {route_result['distance_km']} km\n"
-            response += f"Fare: ₹{route_result['estimated_fare']} (Smart Card se ₹{int(route_result['estimated_fare'] * 0.9)})\n\n"
-            
-            for i, segment in enumerate(route_result['segments'], 1):
-                response += f"{i}. {segment['line']} le sakte ho\n"
-                response += f"   Board: {segment['from']}\n"
-                response += f"   Alight: {segment['to']}\n\n"
-            
-            response += "Nearby recommendations add karne wale hain! 🍕🎉"
-            
-        elif language == "hinglish":
-            response = f"Bhai, {route_result['from']} se {route_result['to']} tak ka route:\n"
-            response += f"Distance: {route_result['distance_km']} km\n"
-            response += f"Fare: ₹{route_result['estimated_fare']} (Smart Card discount available)\n\n"
-            
-            for i, segment in enumerate(route_result['segments'], 1):
-                response += f"{i}. {segment['line']} le sakte ho\n"
-                response += f"   Board: {segment['from']}\n"
-                response += f"   Alight: {segment['to']}\n\n"
-            
-            response += "Coming soon: Nearby food and events! 🍕🎉"
-            
-        else:  # english
-            response = f"Best route from {route_result['from']} to {route_result['to']}:\n"
-            response += f"Distance: {route_result['distance_km']} km\n"
-            response += f"Fare: ₹{route_result['estimated_fare']} (₹{int(route_result['estimated_fare'] * 0.9)} with Smart Card)\n\n"
-            
-            for i, segment in enumerate(route_result['segments'], 1):
-                response += f"{i}. Take {segment['line']}\n"
-                response += f"   Board at: {segment['from']}\n"
-                response += f"   Alight at: {segment['to']}\n\n"
-            
-            response += "Coming soon: Nearby food and events recommendations! 🍕🎉"
+    def _format_dual_route_response(self, primary: Dict, alt: Optional[Dict], language: str) -> Dict:
+        """Format primary (low fare) and optional alternative (faster) route."""
+        def format_route(r: Dict, idx_prefix: str="") -> str:
+            lines = []
+            if language == "hindi":
+                lines.append(f"{idx_prefix}Dur: ~{r['duration_min']} min • Dist: {r['distance_km']} km • Fare: ₹{r['estimated_fare']}")
+            elif language == "hinglish":
+                lines.append(f"{idx_prefix}Time: ~{r['duration_min']} min • Distance: {r['distance_km']} km • Fare: ₹{r['estimated_fare']}")
+            else:
+                lines.append(f"{idx_prefix}~{r['duration_min']} min • {r['distance_km']} km • Fare ₹{r['estimated_fare']}")
+            for i, s in enumerate(r["segments"], 1):
+                if language == "english":
+                    lines.append(f"{i}. Take {s['line']} — {s['from']} → {s['to']}")
+                else:
+                    lines.append(f"{i}. {s['line']} — {s['from']} → {s['to']}")
+            if r.get("uses_airport_express"):
+                lines.append("Note: Uses Airport Express (higher fare).")
+            return "\n".join(lines)
+        
+        header = {
+            "hindi": f"Bhai, {primary['from']} se {primary['to']} tak ka route:",
+            "hinglish": f"Bhai, {primary['from']} se {primary['to']} ka best low-fare route:",
+            "english": f"Best low-fare route from {primary['from']} to {primary['to']}:"
+        }[language if language in ["hindi","hinglish","english"] else "hinglish"]
+        
+        response = [header, format_route(primary)]
+        if alt and alt != primary:
+            alt_title = {
+                "hindi": "\n\nAlternative faster route:",
+                "hinglish": "\n\nAlternative (faster):",
+                "english": "\n\nAlternative (faster):"
+            }[language if language in ["hindi","hinglish","english"] else "hinglish"]
+            response.append(alt_title)
+            response.append(format_route(alt))
+        response.append("\nComing soon: Nearby food and events! 🍕🎉")
+        final = "\n".join(response)
         
         return {
-            "response": response,
-            "route_data": route_result,
+            "response": final,
+            "route_data": primary,
             "language": language,
             "has_route": True
         }
@@ -253,12 +307,17 @@ def test_enhanced_router():
     router = EnhancedMetroRouter()
     
     test_queries = [
+        "Dwarka se Kashmere Gate kaise jaaye?",
+        "Dwarka se Rajiv Chowk kaise jaaye?",
+        "dwarka se kashmere gate?",
+        "dwarka se kashmere gate",
         "How to go to Connaught Place?",
         "Connaught Place kaise jaana hai?",
         "Which line goes to Qutub Minar?",
         "Qutub Minar ke liye kaun si line?",
         "From Dwarka to Airport",
-        "Dwarka se Airport kaise jaana hai?"
+        "Dwarka se Airport kaise jaana hai?",
+        "aerocity se janakpuri west kaise jaana hai?"
     ]
     
     for query in test_queries:

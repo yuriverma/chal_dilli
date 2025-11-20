@@ -32,6 +32,29 @@ def jaccard(a: set, b: set) -> float:
 class MetroRouter:
     def __init__(self, gtfs_dir: str):
         self.gtfs_dir = gtfs_dir
+        # Common aliases to improve station matching (lowercased canonical forms)
+        self.station_aliases: Dict[str, str] = {
+            "aerocity": "delhi aerocity",
+            "aero city": "delhi aerocity",
+            "igi airport": "igi airport",
+            "airport": "igi airport",
+            "cp": "rajiv chowk",
+            "connaught place": "rajiv chowk",
+            "janakpuri west": "janak puri west",
+            "janakpuri w": "janak puri west",
+            "janak puri w": "janak puri west",
+            "peeragarhi": "peera garhi",
+            "peera garhi": "peera garhi",
+            "uttamnagar east": "uttam nagar east",
+            "uttamnagar west": "uttam nagar west",
+        }
+        # Routing time model parameters
+        self.avg_speed_kmph_regular = 32.0
+        self.avg_speed_kmph_airport = 60.0
+        self.per_stop_dwell_min = 0.5
+        self.transfer_penalty_min = 7.0
+        # Extra penalty to discourage Airport Express when preferring low fare
+        self.extra_airport_penalty_min = 0.0
         self._load()
 
     def _load(self):
@@ -117,40 +140,83 @@ class MetroRouter:
 
     def find_best_station_id(self, query: str) -> Optional[str]:
         n = norm(query)
+        # Apply alias mapping first
+        alias_key = n
+        if alias_key in self.station_aliases:
+            n = norm(self.station_aliases[alias_key])
+
+        # Exact normalized match
         if n in self.name_to_stop_ids:
             return self.name_to_stop_ids[n][0]
+
+        # Try condensed match (ignore spaces)
+        condensed = n.replace(" ", "")
+        for name_norm, ids in self.name_to_stop_ids.items():
+            if name_norm.replace(" ", "") == condensed:
+                return ids[0]
+
         q_tokens = token_set(query)
         best_sid, best_score = None, 0.0
         for sid, info in self.stops.items():
             score = jaccard(q_tokens, token_set(info["name"]))
             if score > best_score:
                 best_sid, best_score = sid, score
-        return best_sid if best_score >= 0.34 else None
+        # Slightly relaxed threshold to accept common variants
+        return best_sid if best_score >= 0.28 else None
 
     def edge_key(self, u: str, v: str):
         return (u, v) if u < v else (v, u)
 
-    def dijkstra(self, src: str, dst: str):
+    def edge_time_minutes(self, u: str, v: str) -> float:
+        """Estimate minutes to traverse edge (u,v) including dwell time."""
+        w = self.edge_weight[self.edge_key(u, v)]
+        r_id = self.edge_route_main.get(self.edge_key(u, v))
+        rname = (self.route_display_name(r_id) or "").lower() if r_id else ""
+        speed = self.avg_speed_kmph_airport if "airport" in rname else self.avg_speed_kmph_regular
+        run_time = (w / speed) * 60.0
+        extra = self.extra_airport_penalty_min if ("airport" in rname) else 0.0
+        return run_time + self.per_stop_dwell_min + extra
+
+    def dijkstra_time(self, src: str, dst: str):
+        """Dijkstra minimizing travel time with transfer penalties."""
         import heapq
         INF = 1e18
-        dist = defaultdict(lambda: INF); parent = {}
-        dist[src] = 0.0; pq = [(0.0, src)]
+        # state: (node_id, current_route_id)
+        start_state = (src, None)
+        dist = defaultdict(lambda: INF)
+        parent = {}  # (node, route) -> (prev_node, prev_route)
+        dist[start_state] = 0.0
+        pq = [(0.0, start_state)]
+        best_goal = None
+        best_goal_cost = INF
         while pq:
-            d, u = heapq.heappop(pq)
-            if d != dist[u]: continue
-            if u == dst: break
-            for v, w in self.adj[u]:
-                nd = d + w
-                if nd < dist[v]:
-                    dist[v] = nd; parent[v] = u
-                    heapq.heappush(pq, (nd, v))
-        if dist[dst] == INF:
+            d, (u, r_prev) = heapq.heappop(pq)
+            if d != dist[(u, r_prev)]:
+                continue
+            if u == dst and d < best_goal_cost:
+                best_goal = (u, r_prev)
+                best_goal_cost = d
+            for v, _w in self.adj[u]:
+                r_edge = self.edge_route_main.get(self.edge_key(u, v))
+                time_uv = self.edge_time_minutes(u, v)
+                transfer_cost = 0.0 if (r_prev is None or r_prev == r_edge) else self.transfer_penalty_min
+                nd = d + transfer_cost + time_uv
+                state_v = (v, r_edge)
+                if nd < dist[state_v]:
+                    dist[state_v] = nd
+                    parent[state_v] = (u, r_prev)
+                    heapq.heappush(pq, (nd, state_v))
+        if best_goal is None:
             return (INF, [])
-        path = [dst]
-        while path[-1] != src:
-            path.append(parent[path[-1]])
-        path.reverse()
-        return (dist[dst], path)
+        # reconstruct
+        path_nodes = [best_goal[0]]
+        cur = best_goal
+        while cur in parent:
+            prev = parent[cur]
+            path_nodes.append(prev[0])
+            cur = prev
+        path_nodes.reverse()
+        return (best_goal_cost, path_nodes)
 
     def path_segments(self, path: List[str]):
         if len(path) < 2: return []
@@ -186,19 +252,34 @@ class MetroRouter:
             base = int((base * 0.9)//1)
         return int(base)
 
-    def human_route(self, src_name: str, dst_name: str, smart_card: bool=True):
+    def human_route(self, src_name: str, dst_name: str, smart_card: bool=True, airport_penalty_min: float=0.0):
         src_id = self.find_best_station_id(src_name)
         dst_id = self.find_best_station_id(dst_name)
         if not src_id: return {"error": f"Couldn't find station matching '{src_name}'"}
         if not dst_id: return {"error": f"Couldn't find station matching '{dst_name}'"}
         if src_id == dst_id: return {"message": f"You're already at {self.stops[src_id]['name']} 😄"}
-        total_km, path = self.dijkstra(src_id, dst_id)
+        # apply temporary airport penalty preference
+        prev_penalty = self.extra_airport_penalty_min
+        try:
+            self.extra_airport_penalty_min = max(0.0, float(airport_penalty_min))
+        except Exception:
+            self.extra_airport_penalty_min = prev_penalty
+        total_min, path = self.dijkstra_time(src_id, dst_id)
+        # reset penalty
+        self.extra_airport_penalty_min = prev_penalty
         if not path: return {"error":"No route found between the stations."}
+        # compute total distance along chosen path
+        total_km = 0.0
+        for i in range(len(path)-1):
+            u, v = path[i], path[i+1]
+            total_km += self.edge_weight[self.edge_key(u, v)]
         segs = self.path_segments(path)
         uses_ael = self.path_uses_airport_express(segs)
         est_fare = self.estimate_fare(total_km, uses_ael, smart_card=smart_card)
 
-        lines = [f"Best route ({total_km:.1f} km • est. fare ₹{est_fare}{' with Smart Card' if smart_card else ''}):"]
+        lines = [
+            f"Best route (~{int(round(total_min))} min • {total_km:.1f} km • est. fare ₹{est_fare}{' with Smart Card' if smart_card else ''}):"
+        ]
         for idx, s in enumerate(segs, start=1):
             rname = self.route_display_name(s["route_id"]) or "Metro Line"
             start_name = self.stops[s["from"]]["name"]; end_name = self.stops[s["to"]]["name"]
@@ -214,7 +295,9 @@ class MetroRouter:
             "from": self.stops[src_id]["name"],
             "to": self.stops[dst_id]["name"],
             "distance_km": round(total_km,2),
+            "duration_min": int(round(total_min)),
             "estimated_fare": est_fare,
+            "uses_airport_express": uses_ael,
             "smart_card": smart_card,
             "segments": [{
                 "line": self.route_display_name(s["route_id"]),

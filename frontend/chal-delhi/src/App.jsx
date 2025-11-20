@@ -1,22 +1,37 @@
 import React, { useEffect, useState } from "react";
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
 import LoadingPage from "./pages/HomePage";
-import LandingPage from "./pages/LandingPage";
 import ChattingPage from "./pages/ChattingPage";
 
-function App() {
+function AppContent() {
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(false);
     }, 5000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [location.pathname]);
 
   return (
     <>
-      {loading ? <LoadingPage /> : <ChattingPage />}
+      {loading ? (
+        <LoadingPage />
+      ) : (
+        <Routes>
+          <Route path="/" element={<ChattingPage />} />
+        </Routes>
+      )}
     </>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AppContent />
+    </Router>
   );
 }
 
