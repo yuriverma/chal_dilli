@@ -5,6 +5,7 @@ Backend API for Delhi's Smart AI Assistant
 """
 
 import asyncio
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -320,17 +321,23 @@ async def root():
 
 # ========== RUN SERVER ==========
 if __name__ == "__main__":
+    # Get port from environment variable (for Render, Heroku, etc.) or default to 8000
+    port = int(os.environ.get("PORT", 8000))
+    
     print("🚀 Starting CHAL DILLI Enhanced API Server...")
-    print("📍 API will be available at: http://localhost:8000")
-    print("📚 API Documentation at: http://localhost:8000/docs")
+    print(f"📍 API will be available at: http://0.0.0.0:{port}")
+    print(f"📚 API Documentation at: http://0.0.0.0:{port}/docs")
     print("🔄 Real-time data integration: ACTIVE")
     print(f"🎟️  Non-technical events endpoint: {'✅ Available' if PARSEBOT_AVAILABLE else '❌ Unavailable'}")
     print(f"🧑‍💻 Technical events endpoint: {'✅ Available' if PARSEBOT_TECH_AVAILABLE else '❌ Unavailable'}")
     
+    # Use reload only in development (when PORT is not set or is 8000)
+    use_reload = port == 8000 and os.environ.get("ENVIRONMENT") != "production"
+    
     uvicorn.run(
         "api_server:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=use_reload,
         log_level="info"
     )
