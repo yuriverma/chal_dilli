@@ -4,14 +4,15 @@ CHAL DILLI - Data Scraper
 Real-time Delhi Metro and DTC Bus Data
 """
 
-import requests
-import json
+import logging
 import time
 from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
-import feedparser
 from typing import Dict, List, Optional
-import logging
+
+import feedparser
+import requests
+from bs4 import BeautifulSoup
+
 from delhi_metro_scraper import DelhiMetroScraper
 
 # Configure logging

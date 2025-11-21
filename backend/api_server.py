@@ -4,13 +4,36 @@ CHAL DILLI - FastAPI Server
 Backend API for Delhi's Smart AI Assistant
 """
 
+import asyncio
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+
 from chal_dilli_enhanced import ChalDilliEnhanced
-import uvicorn
-from datetime import datetime
+
+# Import ParseBot helpers so we can expose the same endpoint on this main app
+try:
+    from parsebot_from_url import fetch_full_html, call_parsebot, UrlPayload
+    PARSEBOT_AVAILABLE = True
+    print("✅ ParseBot non-technical events integration loaded")
+except Exception as e:
+    PARSEBOT_AVAILABLE = False
+    print(f"⚠️ ParseBot integration unavailable: {e}")
+    print("   Note: Install playwright with 'pip install playwright && playwright install chromium' to enable non-technical events")
+
+try:
+    from parsebot_technical_events import (
+        TechnicalEventsPayload,
+        call_technical_events_parsebot,
+    )
+    PARSEBOT_TECH_AVAILABLE = True
+except Exception as e:
+    PARSEBOT_TECH_AVAILABLE = False
+    print(f"⚠️ Technical events ParseBot integration unavailable: {e}")
 
 # ========== FASTAPI APP ==========
 app = FastAPI(
@@ -54,6 +77,54 @@ class HealthResponse(BaseModel):
     service: str
     timestamp: str
     version: str
+
+
+# ========== PARSEBOT / BOOKMYSHOW EVENTS ENDPOINT ==========
+if PARSEBOT_AVAILABLE:
+
+    @app.post("/api/parse-events-from-url")
+    async def parse_events_from_url(payload: UrlPayload):
+        """
+        Proxy endpoint: fetch fully rendered HTML via Playwright and send to Parse.bot.
+        This mirrors the standalone parsebot_from_url.py behaviour but runs on the main app.
+        """
+        try:
+            # Step 1: Fetch fully rendered HTML in a worker thread so sync Playwright
+            # does not run directly inside the main asyncio event loop.
+            html = await asyncio.to_thread(fetch_full_html, payload.url)
+            # Step 2: Send HTML to Parse.bot and return result (also in thread to handle sync HTTPException)
+            result = await asyncio.to_thread(call_parsebot, html, bool(payload.debug))
+            return result
+        except HTTPException:
+            # Re-raise HTTPException as-is
+            raise
+        except Exception as e:
+            # Catch any other exceptions and convert to HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing non-technical events: {str(e)}"
+            )
+
+if PARSEBOT_TECH_AVAILABLE:
+
+    @app.post("/api/parse-technical-events")
+    async def parse_technical_events(payload: TechnicalEventsPayload):
+        """
+        Technical events / hackathons endpoint powered by ParseBot (no Playwright needed).
+        """
+        try:
+            # Run in thread pool to avoid blocking and handle sync HTTPException properly
+            result = await asyncio.to_thread(call_technical_events_parsebot, payload.page_url)
+            return result
+        except HTTPException:
+            # Re-raise HTTPException as-is
+            raise
+        except Exception as e:
+            # Catch any other exceptions and convert to HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing technical events: {str(e)}"
+            )
 
 # ========== API ENDPOINTS ==========
 @app.post("/chat", response_model=QueryResponse)
@@ -214,6 +285,22 @@ async def update_data():
 @app.get("/")
 async def root():
     """Root endpoint"""
+    endpoints = {
+        "chat": "/chat",
+        "health": "/health",
+        "metro_status": "/metro-status",
+        "metro_routes": "/metro-routes",
+        "delhi_info": "/delhi-info",
+        "data_summary": "/data-summary",
+        "update_data": "/update-data"
+    }
+    
+    # Add ParseBot endpoints if available
+    if PARSEBOT_AVAILABLE:
+        endpoints["parse_events_from_url"] = "/api/parse-events-from-url"
+    if PARSEBOT_TECH_AVAILABLE:
+        endpoints["parse_technical_events"] = "/api/parse-technical-events"
+    
     return {
         "message": "CHAL DILLI - Delhi's Smart AI Assistant",
         "version": "2.0.0",
@@ -224,14 +311,10 @@ async def root():
             "Food Recommendations",
             "Tourist Attractions"
         ],
-        "endpoints": {
-            "chat": "/chat",
-            "health": "/health",
-            "metro_status": "/metro-status",
-            "metro_routes": "/metro-routes",
-            "delhi_info": "/delhi-info",
-            "data_summary": "/data-summary",
-            "update_data": "/update-data"
+        "endpoints": endpoints,
+        "parsebot_status": {
+            "non_tech_available": PARSEBOT_AVAILABLE,
+            "tech_available": PARSEBOT_TECH_AVAILABLE
         }
     }
 
@@ -241,6 +324,8 @@ if __name__ == "__main__":
     print("📍 API will be available at: http://localhost:8000")
     print("📚 API Documentation at: http://localhost:8000/docs")
     print("🔄 Real-time data integration: ACTIVE")
+    print(f"🎟️  Non-technical events endpoint: {'✅ Available' if PARSEBOT_AVAILABLE else '❌ Unavailable'}")
+    print(f"🧑‍💻 Technical events endpoint: {'✅ Available' if PARSEBOT_TECH_AVAILABLE else '❌ Unavailable'}")
     
     uvicorn.run(
         "api_server:app",

@@ -4,10 +4,11 @@ Enhanced Metro Router for CHAL DILLI
 Integrates real GTFS data with language detection and nearby recommendations
 """
 
+import os
 import re
 from typing import Dict, List, Optional, Tuple
+
 from metro_router import MetroRouter
-import os
 
 # Import gate lookup (optional - will gracefully handle if CSV doesn't exist)
 try:
@@ -321,7 +322,6 @@ class EnhancedMetroRouter:
             }[language if language in ["hindi","hinglish","english"] else "hinglish"]
             response.append(alt_title)
             response.append(format_route(alt))
-        response.append("\nComing soon: Nearby food and events! 🍕🎉")
         
         # Add gate suggestion for destination station if available
         if GATE_LOOKUP_AVAILABLE:
@@ -364,13 +364,11 @@ class EnhancedMetroRouter:
                 response = f"Bhai, {dest.title()} ke liye route:\n"
                 response += f"Type: {dest_info['type']}\n"
                 response += "Exact route calculation coming soon!\n"
-                response += "Coming soon: Nearby food and events! 🍕🎉"
                 
             else:  # english
                 response = f"Route to {dest.title()}:\n"
                 response += f"Type: {dest_info['type']}\n"
                 response += "Exact route calculation coming soon!\n"
-                response += "Coming soon: Nearby food and events recommendations! 🍕🎉"
             
             return {
                 "response": response,

@@ -4,17 +4,22 @@ CHAL DILLI - Enhanced Version with Real-time Data
 Delhi's Smart Big Brother AI Assistant
 """
 
-import re
-import random
 import os
+import random
+import re
 from datetime import datetime
 from typing import Dict, Optional, Tuple
-from data_scraper import DelhiDataScraper
-from enhanced_metro_router import EnhancedMetroRouter
-from hinglish_conversation import HinglishConversationManager
-from food_recommender import recommend_for_location, recommend_by_area, recommend_for_text_query
+
 from area_mapper import extract_area_from_query, get_area_coordinates
+from data_scraper import DelhiDataScraper
 from dtc_router import DTCRouter
+from enhanced_metro_router import EnhancedMetroRouter
+from food_recommender import (
+    recommend_by_area,
+    recommend_for_location,
+    recommend_for_text_query,
+)
+from hinglish_conversation import HinglishConversationManager
 
 class ChalDilliEnhanced:
     def __init__(self):
@@ -547,6 +552,7 @@ class ChalDilliEnhanced:
             if parsed:
                 route_result = self.enhanced_router.get_route_response(query)
                 metro_response = route_result["response"]
+                food_recommendations = None
                 
                 # Add food recommendations for destination station
                 if route_result.get("has_route") and route_result.get("route_data"):
@@ -575,6 +581,9 @@ class ChalDilliEnhanced:
                         # Silently fail - food recommendations are optional
                         print(f"Note: Could not add food recommendations: {e}")
                 
+                # Return response with recommendations if available
+                if food_recommendations:
+                    return (metro_response, food_recommendations)
                 return metro_response
             # If metro keywords but no route, give general metro info
             if any(kw in query_lower for kw in ["metro", "delhi metro", "train", "subway"]):
@@ -627,6 +636,11 @@ class ChalDilliEnhanced:
         """Get Delhi response with real-time data"""
         response = self.generate_response(query)
         
+        # Handle tuple response (metro + food combo returns (response_string, recommendations))
+        recommendations = None
+        if isinstance(response, tuple):
+            response, recommendations = response
+        
         result = {
             "response": response,
             "query": query,
@@ -636,8 +650,11 @@ class ChalDilliEnhanced:
             "data_freshness": self.scraper.last_update.isoformat() if self.scraper.last_update else None
         }
         
-        # If it's a food query, include structured recommendations
-        if self._is_food_query(query):
+        # Include structured recommendations if available
+        if recommendations:
+            result["recommendations"] = recommendations
+        elif self._is_food_query(query):
+            # If it's a food query, get recommendations
             _, recommendations = self.get_food_response(query)
             if recommendations:
                 result["recommendations"] = recommendations
@@ -718,10 +735,7 @@ class ChalDilliEnhanced:
                 safe_pick_line += f" ({sp_rating_count} reviews)"
             if sp_cuisine:
                 safe_pick_line += f", {sp_cuisine}"
-            if sp_zomato:
-                safe_pick_line += f", [Zomato]({sp_zomato})"
-            else:
-                safe_pick_line += ", [Zomato]"
+            # Zomato URL will be rendered as button by frontend, so don't include in text
             
             lines.append(safe_pick_line)
         
@@ -738,10 +752,7 @@ class ChalDilliEnhanced:
                 local_fav_line += f" (rating {lf_rating:.1f})"
             if lf_cuisine:
                 local_fav_line += f", {lf_cuisine}"
-            if lf_zomato:
-                local_fav_line += f", [Zomato]({lf_zomato})"
-            else:
-                local_fav_line += ", [Zomato]"
+            # Zomato URL will be rendered as button by frontend, so don't include in text
             
             lines.append(local_fav_line)
         

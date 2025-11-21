@@ -3,9 +3,10 @@ OpenStreetMap utilities for food recommender.
 Uses free public APIs: Nominatim for geocoding and Overpass for POI queries.
 """
 
-import requests
 import time
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
+
+import requests
 
 # Rate limiting: Nominatim requires max 1 request per second
 _last_request_time = 0

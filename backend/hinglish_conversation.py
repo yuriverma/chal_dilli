@@ -7,12 +7,12 @@ returns suitable small-talk replies using TF-IDF similarity.
 Dataset: Abhishekcr448/Hinglish-Everyday-Conversations-1M
 """
 
-from typing import List, Tuple, Optional
-from dataclasses import dataclass
-import threading
-import random
-import os
 import csv
+import os
+import random
+import threading
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 try:
     from datasets import load_dataset  # type: ignore

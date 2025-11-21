@@ -4,10 +4,11 @@ DMRC Divyangjan Gates Parser
 Parses the official DMRC Divyangjan Entry/Exit Gates PDF and generates a clean CSV dataset.
 """
 
+import csv
 import os
 import re
-import csv
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import pdfplumber
 
 # Paths

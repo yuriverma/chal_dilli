@@ -3,13 +3,14 @@ Food Recommender System for Chal Delhi
 Provides location-based restaurant recommendations using haversine distance.
 """
 
-import pandas as pd
+import json
 import math
 import os
-import json
 import re
-from typing import List, Dict, Optional, Tuple
 from difflib import SequenceMatcher
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
 
 # Import map utilities
 try:
@@ -42,6 +43,10 @@ def _load_and_preprocess_data():
     df['area'] = df['area'].astype(str).str.lower().str.strip()
     df['name'] = df['name'].astype(str).str.lower().str.strip()
     df['city'] = df['city'].astype(str).str.strip()
+    
+    # Normalize cuisine and famous_food for fuzzy matching
+    df['cusine'] = df['cusine'].astype(str).str.lower().str.strip()
+    df['famous_food'] = df['famous_food'].astype(str).str.lower().str.strip()
     
     # Keep rows with latitude and longitude when available
     df = df.dropna(subset=['latitude', 'longitude'])
@@ -122,6 +127,112 @@ def _debug_log(message: str):
 def _similarity_ratio(a: str, b: str) -> float:
     """Calculate similarity ratio between two strings (0.0 to 1.0)."""
     return SequenceMatcher(None, a, b).ratio()
+
+def _extract_cuisine_from_query(query: str) -> Optional[str]:
+    """
+    Extract cuisine or food item keyword from natural language query.
+    
+    Args:
+        query: User query text
+    
+    Returns:
+        Cuisine/food keyword (normalized) or None if not found
+    """
+    query_lower = query.lower().strip()
+    
+    # Common food/cuisine keywords to detect (sorted by length for longest match first)
+    # Multi-word terms should be checked first
+    food_keywords = [
+        'chole bhature', 'butter chicken', 'ice cream', 'gulab jamun', 'fast food',
+        'north indian', 'south indian', 'momos', 'momo', 'pizza', 'pizzeria', 
+        'biryani', 'pasta', 'rolls', 'roll', 'chole', 'bhature', 'bhatura', 
+        'paratha', 'paranthe', 'burger', 'burgers', 'chinese', 'italian', 
+        'mexican', 'thai', 'japanese', 'continental', 'dosa', 'idli', 'vada', 
+        'samosas', 'samosa', 'chaat', 'tandoori', 'kebab', 'kebabs', 'tikka',
+        'dal', 'naan', 'roti', 'paneer', 'curry', 'curries', 'soup', 'salad', 
+        'sandwich', 'sandwiches', 'dessert', 'sweets', 'ladoo', 'jalebi'
+    ]
+    
+    # Check for multi-word food terms first (longer matches are better)
+    # Sort by length descending to match longer terms first
+    for keyword in sorted(food_keywords, key=len, reverse=True):
+        if keyword in query_lower:
+            # Return the keyword (normalized)
+            return keyword.lower().strip()
+    
+    # Tokenize query
+    tokens = re.findall(r'\b\w+\b', query_lower)
+    
+    # Check individual tokens that might be food items
+    # Remove common stop words
+    stop_words = {'food', 'recommendations', 'recommendation', 'best', 'good', 
+                  'restaurant', 'restaurants', 'cafe', 'cafes', 'in', 'near', 
+                  'around', 'at', 'for', 'the', 'a', 'an', 'and', 'or', 'of', 
+                  'to', 'from', 'where', 'should', 'i', 'eat', 'want', 'get',
+                  'me', 'my', 'is', 'are', 'was', 'were', 'be', 'been', 'being'}
+    
+    meaningful_tokens = [t for t in tokens if t not in stop_words and len(t) > 3]
+    
+    # Return the first meaningful token as potential cuisine (if found)
+    # This is a simple heuristic - can be improved
+    if meaningful_tokens:
+        # Check if any token looks like a food item (not an area)
+        # Areas are usually longer compound words, food items are often shorter
+        for token in meaningful_tokens:
+            # Skip if it looks like an area (contains numbers, common area words)
+            if any(word in token for word in ['sector', 'phase', 'block', 'road', 'nagar', 'colony', 'vihar']):
+                continue
+            # Skip common area names that might be confused
+            if token in ['delhi', 'ncr', 'noida', 'gurgaon', 'ghaziabad']:
+                continue
+            # Return first non-area-looking token as cuisine candidate
+            return token
+    
+    return None
+
+def _fuzzy_match_cuisine(cuisine_term: str, cuisine_text: str, famous_food_text: str) -> bool:
+    """
+    Check if cuisine_term fuzzily matches cuisine_text or famous_food_text.
+    
+    Args:
+        cuisine_term: The cuisine/food keyword to match (e.g., "momos")
+        cuisine_text: The cuisine column value from CSV
+        famous_food_text: The famous_food column value from CSV
+    
+    Returns:
+        True if there's a fuzzy match, False otherwise
+    """
+    if not cuisine_term:
+        return False
+    
+    cuisine_term_lower = cuisine_term.lower().strip()
+    cuisine_text_lower = str(cuisine_text).lower().strip() if pd.notna(cuisine_text) else ""
+    famous_food_text_lower = str(famous_food_text).lower().strip() if pd.notna(famous_food_text) else ""
+    
+    # Check exact substring match (most common case)
+    if cuisine_term_lower in cuisine_text_lower or cuisine_term_lower in famous_food_text_lower:
+        return True
+    
+    # Check word boundary matches (e.g., "momo" matches "momos" or "momos wale")
+    # Split by common separators
+    cuisine_words = re.split(r'[,\s&]+', cuisine_text_lower)
+    famous_food_words = re.split(r'[,\s&]+', famous_food_text_lower)
+    
+    # Check if cuisine_term is a substring of any word (with some leniency)
+    for word in cuisine_words + famous_food_words:
+        if word and len(word) > 2:
+            # Exact word match
+            if cuisine_term_lower == word:
+                return True
+            # Substring match (e.g., "momo" in "momos")
+            if cuisine_term_lower in word or word in cuisine_term_lower:
+                # Require at least 70% similarity for short words
+                if len(cuisine_term_lower) >= 4 or len(word) >= 4:
+                    similarity = _similarity_ratio(cuisine_term_lower, word)
+                    if similarity >= 0.7:
+                        return True
+    
+    return False
 
 def _extract_area_from_query(query: str) -> Optional[Tuple[str, str]]:
     """
@@ -412,15 +523,16 @@ def recommend_for_location(lat: float, lon: float, radius_km: float = 5) -> Dict
 
 def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
     """
-    Attempt to parse area from natural language query and recommend by area.
-    Improved area detection supports queries like:
-    - "food recommendations in rohini"
-    - "best food in rohini"
-    - "momos in rohini"
-    - "rohini sector 9"
+    Attempt to parse area and cuisine from natural language query and recommend.
+    Improved detection supports queries like:
+    - "food recommendations in rohini" (area-only)
+    - "best food in rohini" (area-only)
+    - "momos in rohini" (area + cuisine)
+    - "pizza in dwarka" (area + cuisine)
+    - "biryani in cp" (area + cuisine)
     
     Args:
-        query: Text query (attempts to extract area name from natural language)
+        query: Text query (attempts to extract area name and cuisine from natural language)
         city: City name (default: "Delhi")
     
     Returns:
@@ -429,11 +541,27 @@ def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
     # Extract area from query using improved detection
     area_result = _extract_area_from_query(query)
     
+    # Extract cuisine/food item from query
+    cuisine_term = _extract_cuisine_from_query(query)
+    
     if area_result:
         canonical_area, match_type = area_result
         _debug_log(f"Using area '{canonical_area}' (match type: {match_type})")
         
-        # Get recommendations using the canonical area name
+        # If both area and cuisine are detected, try cuisine-filtered recommendations first
+        if cuisine_term:
+            _debug_log(f"Detected cuisine/food item: '{cuisine_term}'")
+            result = recommend_by_area_and_cuisine(canonical_area, cuisine_term, city)
+            
+            # If we got results with cuisine filter, return them
+            if result.get('safe_pick') or result.get('local_favourite'):
+                _debug_log(f"Found {len([r for r in [result.get('safe_pick'), result.get('local_favourite')] if r])} recommendations with cuisine filter")
+                return result
+            else:
+                # Fallback to area-only if no cuisine matches found
+                _debug_log(f"No matches found for '{cuisine_term}' in '{canonical_area}', falling back to area-only")
+        
+        # Get recommendations using the canonical area name (area-only)
         result = recommend_by_area(canonical_area, city)
         
         # If we got results, return them
@@ -445,6 +573,121 @@ def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
     return {
         'safe_pick': None,
         'local_favourite': None
+    }
+
+def recommend_by_area_and_cuisine(area: str, cuisine_term: str, city: str = "Delhi") -> Dict:
+    """
+    Get recommendations for a specific area filtered by cuisine/food item.
+    
+    Args:
+        area: Area name (normalized to lowercase)
+        cuisine_term: Cuisine or food item keyword (e.g., "momos", "pizza")
+        city: City name (default: "Delhi")
+    
+    Returns:
+        Dictionary with 'safe_pick' and 'local_favourite' recommendations
+        If no matches found, returns empty dict (caller should fallback to area-only)
+    """
+    area_lower = area.lower().strip()
+    cuisine_term_lower = cuisine_term.lower().strip() if cuisine_term else None
+    
+    if not cuisine_term_lower:
+        # No cuisine term provided, fallback to area-only
+        return recommend_by_area(area, city)
+    
+    # Filter by city and area
+    city_filter = _df['city'].str.contains(city, case=False, na=False)
+    area_filter = _df['area'] == area_lower
+    
+    candidates_df = _df[city_filter & area_filter]
+    
+    if len(candidates_df) == 0:
+        return {
+            'safe_pick': None,
+            'local_favourite': None
+        }
+    
+    # Filter by cuisine/food item using fuzzy matching
+    cuisine_filtered = []
+    for _, row in candidates_df.iterrows():
+        cuisine_text = row.get('cusine', '')
+        famous_food_text = row.get('famous_food', '')
+        
+        if _fuzzy_match_cuisine(cuisine_term_lower, cuisine_text, famous_food_text):
+            try:
+                rec = {
+                    'name': row['name'],
+                    'area': row['area'],
+                    'city': row['city'],
+                    'rating': float(row['rating']) if pd.notna(row['rating']) else 0.0,
+                    'rating_count': int(row['rating_count']) if pd.notna(row['rating_count']) else 0,
+                    'cost_for_two': float(row['cost_for_two']) if pd.notna(row['cost_for_two']) else None,
+                    'telephone': str(row['telephone']) if pd.notna(row['telephone']) and str(row['telephone']) != '#ERROR!' else None,
+                    'address': str(row['address']) if pd.notna(row['address']) else None,
+                    'famous_food': str(row['famous_food']) if pd.notna(row['famous_food']) else None,
+                    'latitude': float(row['latitude']),
+                    'longitude': float(row['longitude']),
+                    'distance_km': 0.0,  # No distance for area-based search
+                    'source': 'csv',
+                    'zomato_url': str(row['Zomato link']) if pd.notna(row.get('Zomato link')) and str(row.get('Zomato link', '')).strip() else None
+                }
+                cuisine_filtered.append(rec)
+            except (ValueError, TypeError):
+                continue
+    
+    # If no cuisine matches, return empty (caller should fallback)
+    if not cuisine_filtered:
+        return {
+            'safe_pick': None,
+            'local_favourite': None
+        }
+    
+    # Select safe_pick and local_favourite using same logic
+    # safe_pick: highest rating, tie-break: higher rating_count, then smaller distance
+    safe_pick = max(cuisine_filtered, key=lambda x: (
+        x['rating'],
+        x['rating_count'],
+        -x['distance_km']
+    ))
+    
+    # local_favourite: highest rating_count, tie-break: higher rating, then smaller distance
+    # If only 1 item, use it for both
+    if len(cuisine_filtered) == 1:
+        local_favourite = safe_pick
+    else:
+        # Get local_favourite (different from safe_pick if possible)
+        local_favourite_candidates = [r for r in cuisine_filtered if r != safe_pick]
+        if local_favourite_candidates:
+            local_favourite = max(local_favourite_candidates, key=lambda x: (
+                x['rating_count'],
+                x['rating'],
+                -x['distance_km']
+            ))
+        else:
+            local_favourite = safe_pick
+    
+    # Format recommendations with EXACT field list
+    def format_recommendation(rec: Dict) -> Dict:
+        return {
+            'name': str(rec['name']),
+            'area': str(rec['area']),
+            'city': str(rec['city']),
+            'rating': float(rec['rating']),
+            'rating_count': int(rec['rating_count']),
+            'cost_for_two': float(rec['cost_for_two']) if rec.get('cost_for_two') is not None else None,
+            'telephone': str(rec['telephone']) if rec.get('telephone') is not None else None,
+            'address': str(rec['address']) if rec.get('address') is not None else None,
+            'famous_food': str(rec['famous_food']) if rec.get('famous_food') is not None else None,
+            'latitude': float(rec['latitude']),
+            'longitude': float(rec['longitude']),
+            'distance_km': round(float(rec['distance_km']), 2),
+            'source': str(rec.get('source', 'csv')),
+            'zomato_url': str(rec['zomato_url']) if rec.get('zomato_url') is not None else None
+        }
+    
+    return {
+        'safe_pick': format_recommendation(safe_pick),
+        'local_favourite': format_recommendation(local_favourite) if local_favourite != safe_pick else format_recommendation(safe_pick)
     }
 
 def recommend_by_area(area: str, city: str = "Delhi") -> Dict:

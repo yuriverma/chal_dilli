@@ -4,11 +4,11 @@ Gate Lookup Module for DMRC Metro Stations
 Provides functions to look up accessible gates and lifts for metro stations.
 """
 
-import os
 import csv
+import os
 import re
-from typing import List, Dict, Optional
 from difflib import SequenceMatcher
+from typing import Dict, List, Optional
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -227,4 +227,5 @@ def format_gate_suggestion(gate_info: Dict, language: str = "hinglish") -> str:
             return f"\n\n🚪 At {station}, use {gate_desc} towards {landmark}."
         else:
             return f"\n\n🚪 At {station}, use {gate_desc}."
+
 

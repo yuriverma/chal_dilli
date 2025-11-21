@@ -1,8 +1,15 @@
 
-# metro_router.py
-import os, csv, math
-from collections import defaultdict, Counter
-from typing import Dict, List, Tuple, Optional, Set
+#!/usr/bin/env python3
+"""
+Metro Router for CHAL DILLI
+Provides metro routing using GTFS data from data/DMRC_GTFS (1)
+"""
+
+import csv
+import math
+import os
+from collections import Counter, defaultdict
+from typing import Dict, List, Optional, Set, Tuple
 
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0

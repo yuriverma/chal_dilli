@@ -4,12 +4,13 @@ Delhi Metro Real Scraper
 Actually scrapes Delhi Metro official website for real-time data
 """
 
-import requests
-from bs4 import BeautifulSoup
-import json
+import logging
 import time
 from datetime import datetime
-import logging
+from typing import Dict
+
+import requests
+from bs4 import BeautifulSoup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +43,7 @@ class DelhiMetroScraper:
             "Airport Express": {"route": "New Delhi - Dwarka Sector 21", "stations": 6}
         }
     
-    def scrape_metro_website(self, url: str) -> dict:
+    def scrape_metro_website(self, url: str) -> Dict:
         """Scrape Delhi Metro official website"""
         try:
             logger.info(f"Scraping Delhi Metro website: {url}")
@@ -99,7 +100,7 @@ class DelhiMetroScraper:
             logger.error(f"Error scraping {url}: {e}")
             return {"url": url, "error": str(e)}
     
-    def scrape_all_metro_sites(self) -> dict:
+    def scrape_all_metro_sites(self) -> Dict:
         """Scrape all Delhi Metro websites"""
         logger.info("Scraping all Delhi Metro websites...")
         
@@ -115,7 +116,7 @@ class DelhiMetroScraper:
         
         return results
     
-    def get_metro_status(self) -> dict:
+    def get_metro_status(self) -> Dict:
         """Get comprehensive Metro status"""
         logger.info("Getting Delhi Metro status...")
         
@@ -171,7 +172,7 @@ class DelhiMetroScraper:
         logger.info(f"Metro status: {overall_status} with {len(total_alerts)} alerts")
         return metro_status
     
-    def get_line_specific_info(self, line_name: str) -> dict:
+    def get_line_specific_info(self, line_name: str) -> Dict:
         """Get specific information about a Metro line"""
         if line_name not in self.metro_lines:
             return {"error": "Line not found"}
