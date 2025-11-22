@@ -75,21 +75,42 @@ app.add_middleware(
 async def initialize_chal_dilli_background():
     """Initialize CHAL DILLI in background - non-blocking"""
     global chal_dilli
+    import time
+    start_time = time.time()
     try:
-        print("🔄 Starting CHAL DILLI initialization in background...")
+        print("=" * 60)
+        print("🔄 Starting CHAL DILLI initialization...")
+        print("=" * 60)
+        
         from chal_dilli_enhanced import ChalDilliEnhanced
-        print("🔄 Import successful, creating instance...")
+        print("✅ Import successful")
+        
+        print("🔄 Creating ChalDilliEnhanced instance...")
         # Run initialization in thread pool to avoid blocking event loop
         chal_dilli = await asyncio.to_thread(ChalDilliEnhanced)
-        print("✅ CHAL DILLI Enhanced initialized successfully!")
+        
+        elapsed = time.time() - start_time
+        print("=" * 60)
+        print(f"✅ CHAL DILLI Enhanced initialized successfully in {elapsed:.2f}s")
+        print("=" * 60)
+        
         # Update data in background task (non-blocking)
+        print("🔄 Starting background data update...")
         asyncio.create_task(update_data_background())
-    except Exception as e:
-        print(f"❌ ERROR: Failed to initialize CHAL DILLI: {e}")
+    except ImportError as e:
+        print("=" * 60)
+        print(f"❌ IMPORT ERROR: {e}")
+        print("=" * 60)
         import traceback
-        print("=" * 50)
         traceback.print_exc()
-        print("=" * 50)
+        chal_dilli = None
+    except Exception as e:
+        print("=" * 60)
+        print(f"❌ INITIALIZATION ERROR: {e}")
+        print("=" * 60)
+        import traceback
+        traceback.print_exc()
+        print("=" * 60)
         chal_dilli = None
 
 async def update_data_background():
