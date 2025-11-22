@@ -97,11 +97,21 @@ async def update_data_background():
     await asyncio.sleep(2)  # Wait 2 seconds for server to be ready
     if chal_dilli:
         try:
+            print("=" * 60)
+            print("🔄 Starting scraper data update...")
+            print("=" * 60)
             # Run update_data in thread pool to avoid blocking
             await asyncio.to_thread(chal_dilli.update_data)
-            print("✅ Background data update completed")
+            print("=" * 60)
+            print("✅ Background data update completed successfully!")
+            print("=" * 60)
         except Exception as e:
-            print(f"⚠️ Background data update failed: {e}")
+            print("=" * 60)
+            print(f"❌ Background data update failed: {e}")
+            print("=" * 60)
+            import traceback
+            traceback.print_exc()
+            print("=" * 60)
 
 # ========== PYDANTIC MODELS ==========
 class QueryRequest(BaseModel):
@@ -237,6 +247,15 @@ async def health_check():
         timestamp=datetime.now().isoformat(),
         version="2.0.0"
     )
+
+@app.get("/init-status")
+async def init_status():
+    """Check initialization status"""
+    return {
+        "initialized": chal_dilli is not None,
+        "status": "ready" if chal_dilli else "initializing",
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.get("/metro-status")
 async def metro_status():
