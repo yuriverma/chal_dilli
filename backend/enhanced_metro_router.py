@@ -8,6 +8,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from metro_router import MetroRouter
+from gate_lookup import get_best_gate_for_station, format_gate_suggestion
 
 # Get absolute project root path
 _BASE_DIR = Path(__file__).resolve().parent.parent
@@ -228,7 +229,24 @@ class EnhancedMetroRouter:
             }[language if language in ["hindi","hinglish","english"] else "hinglish"]
             response.append(alt_title)
             response.append(format_route(alt))
-        response.append("\nComing soon: Nearby food and events! 🍕🎉")
+        
+        # Add gate information for source and destination stations
+        try:
+            # Get gate for source station
+            source_gate = get_best_gate_for_station(primary.get("from", ""))
+            if source_gate:
+                gate_text = format_gate_suggestion(source_gate, language)
+                response.append(gate_text)
+            
+            # Get gate for destination station
+            dest_gate = get_best_gate_for_station(primary.get("to", ""))
+            if dest_gate:
+                gate_text = format_gate_suggestion(dest_gate, language)
+                response.append(gate_text)
+        except Exception as e:
+            # Silently fail - gate information is optional
+            print(f"Note: Could not add gate information: {e}")
+        
         final = "\n".join(response)
         
         return {
@@ -257,13 +275,11 @@ class EnhancedMetroRouter:
                 response = f"Bhai, {dest.title()} ke liye route:\n"
                 response += f"Type: {dest_info['type']}\n"
                 response += "Exact route calculation coming soon!\n"
-                response += "Coming soon: Nearby food and events! 🍕🎉"
                 
             else:  # english
                 response = f"Route to {dest.title()}:\n"
                 response += f"Type: {dest_info['type']}\n"
                 response += "Exact route calculation coming soon!\n"
-                response += "Coming soon: Nearby food and events recommendations! 🍕🎉"
             
             return {
                 "response": response,

@@ -105,38 +105,7 @@ const ChattingPage = () => {
                 {m.bot && (
                   <div className="flex justify-start">
                     <div className="max-w-[75%] bg-amber-900/60 border border-amber-700/30 rounded-lg px-4 py-2 text-amber-50 text-sm whitespace-pre-wrap">
-                      {/* Parse markdown links and convert to buttons */}
-                      {m.bot.split(/(\[Zomato\]\([^)]+\))/g).map((part, idx) => {
-                        const zomatoMatch = part.match(/\[Zomato\]\(([^)]+)\)/);
-                        if (zomatoMatch) {
-                          const url = zomatoMatch[1];
-                          // Try to extract restaurant name from context
-                          const lines = m.bot.split('\n');
-                          let restaurantName = 'View on Zomato';
-                          for (let i = 0; i < lines.length; i++) {
-                            if (lines[i].includes(part)) {
-                              // Look for restaurant name in previous lines
-                              const prevLine = lines[i - 1] || '';
-                              const nameMatch = prevLine.match(/(?:Safe pick|Local favourite):\s*([^–]+)/);
-                              if (nameMatch) {
-                                restaurantName = nameMatch[1].trim();
-                              }
-                            }
-                          }
-                          return (
-                            <a
-                              key={idx}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-block bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-full transition-colors mt-2"
-                            >
-                              🍽️ Zomato - {restaurantName}
-                            </a>
-                          );
-                        }
-                        return <span key={idx}>{part}</span>;
-                      })}
+                      {m.bot}
                       {m.recommendations && (
                         <div className="mt-3 space-y-2 pt-2 border-t border-amber-700/30">
                           {m.recommendations.safe_pick && m.recommendations.safe_pick.zomato_url && (
