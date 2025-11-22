@@ -14,7 +14,9 @@ const ChattingPage = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/chat", {
+      // Use environment variable or fallback to Render URL
+      const API_URL = import.meta.env.VITE_API_URL || "https://chal-dilli-backend.onrender.com";
+      const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: input }),
