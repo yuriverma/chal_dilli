@@ -1,25 +1,25 @@
-# Core API framework
+
 fastapi
 uvicorn[standard]
 pydantic
 
-# Data processing
+
 pandas
 requests
 beautifulsoup4
 feedparser
 aiohttp
 
-# PDF parsing (for gate data)
+
 pdfplumber
 
-# Fuzzy string matching
+
 fuzzywuzzy
 python-Levenshtein
 
-# Machine learning (optional - for Hinglish conversation, has graceful fallback)
+
 datasets>=2.19.0
 scikit-learn>=1.4.0
 
-# Optional: Playwright for ParseBot (install separately if needed)
-# playwright
+
+playwright
