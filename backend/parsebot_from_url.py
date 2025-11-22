@@ -97,29 +97,8 @@ def fetch_full_html(url: str, max_retries: int = 2) -> str:
             detail="Playwright is not installed. Please install it with: pip install playwright && playwright install chromium",
         )
     
-    # Check if Playwright browsers are installed
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            # Try to launch browser to check if binaries exist
-            try:
-                browser = p.chromium.launch(headless=True)
-                browser.close()
-            except Exception as browser_error:
-                if "Executable doesn't exist" in str(browser_error):
-                    raise HTTPException(
-                        status_code=503,
-                        detail="Playwright browser binaries not installed. Please run: playwright install chromium",
-                    )
-                raise
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't even check, assume it's not available
-        raise HTTPException(
-            status_code=503,
-            detail=f"Playwright browser check failed: {str(e)}. Please ensure playwright install chromium has been run.",
-        )
+    # Don't check browser availability here - let it fail gracefully during actual use
+    # This avoids blocking startup if dependencies are missing
     
     last_error = None
     
@@ -163,6 +142,15 @@ def fetch_full_html(url: str, max_retries: int = 2) -> str:
                     
         except Exception as exc:
             last_error = exc
+            error_str = str(exc)
+            
+            # Check for system dependency errors
+            if "missing dependencies" in error_str or "install-deps" in error_str:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Playwright system dependencies are missing. The build process should install them automatically. If this error persists, please check deployment logs.",
+                )
+            
             if attempt < max_retries:
                 # Wait before retrying (exponential backoff)
                 time.sleep(2 ** attempt)
