@@ -39,10 +39,28 @@ except Exception as e:
     print(f"⚠️ Technical events ParseBot integration unavailable: {e}")
 
 # ========== FASTAPI APP ==========
+from contextlib import asynccontextmanager
+
+# Global instance - will be initialized in background
+chal_dilli = None
+
+# Lifespan context manager - ensures server starts immediately
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager - starts background tasks immediately"""
+    # Yield immediately - server is ready, Render can detect port
+    yield
+    # Start initialization AFTER server is up (non-blocking)
+    asyncio.create_task(initialize_chal_dilli_background())
+    # Cleanup if needed
+    pass
+
+# Create app with lifespan
 app = FastAPI(
     title="CHAL DILLI API",
     description="Delhi's Smart Big Brother AI Assistant with Real-time Data",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware for frontend integration
@@ -53,16 +71,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global instance - will be initialized in startup event
-chal_dilli = None
-
-# ========== STARTUP EVENT ==========
-@app.on_event("startup")
-async def startup_event():
-    """Initialize models, routers, scrapers on startup - non-blocking"""
-    # Start initialization in background task so server starts immediately
-    asyncio.create_task(initialize_chal_dilli_background())
 
 async def initialize_chal_dilli_background():
     """Initialize CHAL DILLI in background - non-blocking"""
