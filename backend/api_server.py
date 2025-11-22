@@ -4,17 +4,14 @@ CHAL DILLI - FastAPI Server
 Backend API for Delhi's Smart AI Assistant
 """
 
-import asyncio
-import os
-from datetime import datetime
-from typing import Any, Dict, Optional
-
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
+from typing import Optional, Dict, Any
 from chal_dilli_enhanced import ChalDilliEnhanced
+import uvicorn
+from datetime import datetime
+import asyncio
 
 # Import ParseBot helpers so we can expose the same endpoint on this main app
 try:
