@@ -105,9 +105,17 @@ backend/.DS_Store
 frontend/node_modules/
 frontend/.DS_Store
 frontend/chal-delhi/node_modules/
-frontend/chal-delhi/venv
+frontend/chal-delhi/venv/
 frontend/chal-delhi/dist/
 frontend/chal-delhi/.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pycache/
 
 # Data files (keep required data)
 data/*.json

@@ -7,12 +7,12 @@ returns suitable small-talk replies using TF-IDF similarity.
 Dataset: Abhishekcr448/Hinglish-Everyday-Conversations-1M
 """
 
-import csv
-import os
-import random
-import threading
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+import threading
+import random
+import os
+import csv
 
 try:
     from datasets import load_dataset  # type: ignore
@@ -65,14 +65,17 @@ class HinglishConversationManager:
         self._vectorizer: Optional[TfidfVectorizer] = None
         self._matrix = None
         self._lock = threading.Lock()
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self._cache_csv = os.path.normpath(os.path.join(base_dir, "..", "data", "hinglish_smalltalk.csv"))
+        from pathlib import Path
+        _BASE_DIR = Path(__file__).resolve().parent.parent
+        _DATA_DIR = _BASE_DIR / "data"
+        self._cache_csv = str(_DATA_DIR / "hinglish_smalltalk.csv")
 
     def is_available(self) -> bool:
         return load_dataset is not None and TfidfVectorizer is not None
 
     def _load_from_csv_cache(self) -> bool:
-        if not os.path.exists(self._cache_csv) or TfidfVectorizer is None:
+        from pathlib import Path
+        if not Path(self._cache_csv).exists() or TfidfVectorizer is None:
             return False
         try:
             inputs: List[str] = []
@@ -129,7 +132,8 @@ class HinglishConversationManager:
                 self._matrix = self._vectorizer.fit_transform(inputs)
                 # Save cache for offline use
                 try:
-                    os.makedirs(os.path.dirname(self._cache_csv), exist_ok=True)
+                    from pathlib import Path
+                    Path(self._cache_csv).parent.mkdir(parents=True, exist_ok=True)
                     with open(self._cache_csv, "w", newline="", encoding="utf-8") as f:
                         w = csv.DictWriter(f, fieldnames=["input", "output"])
                         w.writeheader()

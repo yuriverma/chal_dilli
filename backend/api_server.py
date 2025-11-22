@@ -8,8 +8,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-from chal_dilli_enhanced import ChalDilliEnhanced
-import uvicorn
 from datetime import datetime
 import asyncio
 
@@ -49,13 +47,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize CHAL DILLI Enhanced with error handling
-try:
-    chal_dilli = ChalDilliEnhanced()
-    print("✅ CHAL DILLI Enhanced initialized successfully")
-except Exception as e:
-    print(f"⚠️ Warning: Error initializing CHAL DILLI: {e}")
-    chal_dilli = None
+# Global instance - will be initialized in startup event
+chal_dilli = None
+
+# ========== STARTUP EVENT ==========
+@app.on_event("startup")
+async def startup_event():
+    """Initialize models, routers, scrapers on startup"""
+    global chal_dilli
+    try:
+        from chal_dilli_enhanced import ChalDilliEnhanced
+        print("🔄 Initializing CHAL DILLI Enhanced...")
+        chal_dilli = ChalDilliEnhanced()
+        # Update data in background task (non-blocking)
+        asyncio.create_task(update_data_background())
+        print("✅ CHAL DILLI Enhanced initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Error initializing CHAL DILLI: {e}")
+        chal_dilli = None
+
+async def update_data_background():
+    """Background task to update data after startup"""
+    await asyncio.sleep(1)  # Wait 1 second for server to be ready
+    if chal_dilli:
+        try:
+            # Run update_data in thread pool to avoid blocking
+            await asyncio.to_thread(chal_dilli.update_data)
+            print("✅ Background data update completed")
+        except Exception as e:
+            print(f"⚠️ Background data update failed: {e}")
 
 # ========== PYDANTIC MODELS ==========
 class QueryRequest(BaseModel):
@@ -317,24 +337,5 @@ async def root():
     }
 
 # ========== RUN SERVER ==========
-if __name__ == "__main__":
-    # Get port from environment variable (for Render, Heroku, etc.) or default to 8000
-    port = int(os.environ.get("PORT", 8000))
-    
-    print("🚀 Starting CHAL DILLI Enhanced API Server...")
-    print(f"📍 API will be available at: http://0.0.0.0:{port}")
-    print(f"📚 API Documentation at: http://0.0.0.0:{port}/docs")
-    print("🔄 Real-time data integration: ACTIVE")
-    print(f"🎟️  Non-technical events endpoint: {'✅ Available' if PARSEBOT_AVAILABLE else '❌ Unavailable'}")
-    print(f"🧑‍💻 Technical events endpoint: {'✅ Available' if PARSEBOT_TECH_AVAILABLE else '❌ Unavailable'}")
-    
-    # Use reload only in development (when PORT is not set or is 8000)
-    use_reload = port == 8000 and os.environ.get("ENVIRONMENT") != "production"
-    
-    uvicorn.run(
-        "api_server:app",
-        host="0.0.0.0",
-        port=port,
-        reload=use_reload,
-        log_level="info"
-    )
+# Note: Server should be started with: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
+# DO NOT use uvicorn.run() here - it blocks and prevents proper deployment

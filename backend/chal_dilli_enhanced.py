@@ -4,22 +4,21 @@ CHAL DILLI - Enhanced Version with Real-time Data
 Delhi's Smart Big Brother AI Assistant
 """
 
-import os
-import random
 import re
+import random
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional, Tuple
-
-from area_mapper import extract_area_from_query, get_area_coordinates
 from data_scraper import DelhiDataScraper
-from dtc_router import DTCRouter
 from enhanced_metro_router import EnhancedMetroRouter
-from food_recommender import (
-    recommend_by_area,
-    recommend_for_location,
-    recommend_for_text_query,
-)
 from hinglish_conversation import HinglishConversationManager
+from food_recommender import recommend_for_location, recommend_by_area, recommend_for_text_query
+from area_mapper import extract_area_from_query, get_area_coordinates
+from dtc_router import DTCRouter
+
+# Get absolute project root path
+_BASE_DIR = Path(__file__).resolve().parent.parent
+_DATA_DIR = _BASE_DIR / "data"
 
 class ChalDilliEnhanced:
     def __init__(self):
@@ -33,10 +32,9 @@ class ChalDilliEnhanced:
         
         # Initialize DTC router
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            gtfs_dir = os.path.normpath(os.path.join(base_dir, "..", "data", "GTFS"))
-            if os.path.exists(gtfs_dir):
-                self.dtc_router = DTCRouter(gtfs_dir)
+            gtfs_dir = _DATA_DIR / "GTFS"
+            if gtfs_dir.exists():
+                self.dtc_router = DTCRouter(str(gtfs_dir))
                 print(f"✅ DTC router loaded with GTFS data from {gtfs_dir}")
             else:
                 print(f"⚠️ DTC GTFS directory not found: {gtfs_dir}")
@@ -45,8 +43,8 @@ class ChalDilliEnhanced:
             print(f"⚠️ Error loading DTC router: {e}")
             self.dtc_router = None
         
-        # Initialize with data
-        self.update_data()
+        # DO NOT call update_data() here - it's blocking
+        # It will be called in background task after startup
         # Warm small-talk index (non-blocking best effort)
         try:
             self.conv.load_index()
@@ -552,7 +550,6 @@ class ChalDilliEnhanced:
             if parsed:
                 route_result = self.enhanced_router.get_route_response(query)
                 metro_response = route_result["response"]
-                food_recommendations = None
                 
                 # Add food recommendations for destination station
                 if route_result.get("has_route") and route_result.get("route_data"):
@@ -581,9 +578,6 @@ class ChalDilliEnhanced:
                         # Silently fail - food recommendations are optional
                         print(f"Note: Could not add food recommendations: {e}")
                 
-                # Return response with recommendations if available
-                if food_recommendations:
-                    return (metro_response, food_recommendations)
                 return metro_response
             # If metro keywords but no route, give general metro info
             if any(kw in query_lower for kw in ["metro", "delhi metro", "train", "subway"]):
@@ -636,11 +630,6 @@ class ChalDilliEnhanced:
         """Get Delhi response with real-time data"""
         response = self.generate_response(query)
         
-        # Handle tuple response (metro + food combo returns (response_string, recommendations))
-        recommendations = None
-        if isinstance(response, tuple):
-            response, recommendations = response
-        
         result = {
             "response": response,
             "query": query,
@@ -650,11 +639,8 @@ class ChalDilliEnhanced:
             "data_freshness": self.scraper.last_update.isoformat() if self.scraper.last_update else None
         }
         
-        # Include structured recommendations if available
-        if recommendations:
-            result["recommendations"] = recommendations
-        elif self._is_food_query(query):
-            # If it's a food query, get recommendations
+        # If it's a food query, include structured recommendations
+        if self._is_food_query(query):
             _, recommendations = self.get_food_response(query)
             if recommendations:
                 result["recommendations"] = recommendations
@@ -735,7 +721,10 @@ class ChalDilliEnhanced:
                 safe_pick_line += f" ({sp_rating_count} reviews)"
             if sp_cuisine:
                 safe_pick_line += f", {sp_cuisine}"
-            # Zomato URL will be rendered as button by frontend, so don't include in text
+            if sp_zomato:
+                safe_pick_line += f", [Zomato]({sp_zomato})"
+            else:
+                safe_pick_line += ", [Zomato]"
             
             lines.append(safe_pick_line)
         
@@ -752,7 +741,10 @@ class ChalDilliEnhanced:
                 local_fav_line += f" (rating {lf_rating:.1f})"
             if lf_cuisine:
                 local_fav_line += f", {lf_cuisine}"
-            # Zomato URL will be rendered as button by frontend, so don't include in text
+            if lf_zomato:
+                local_fav_line += f", [Zomato]({lf_zomato})"
+            else:
+                local_fav_line += ", [Zomato]"
             
             lines.append(local_fav_line)
         
