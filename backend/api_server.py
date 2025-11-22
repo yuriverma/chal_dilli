@@ -10,6 +10,13 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
 import asyncio
+import sys
+from pathlib import Path
+
+# Add backend directory to Python path for imports
+_BACKEND_DIR = Path(__file__).resolve().parent
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 # Import ParseBot helpers so we can expose the same endpoint on this main app
 try:
