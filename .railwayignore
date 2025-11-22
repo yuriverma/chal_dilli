@@ -1,0 +1,26 @@
+# Railway ignore file - exclude from build
+backend/venv/
+backend/.venv/
+frontend/chal-delhi/node_modules/
+frontend/chal-delhi/venv/
+frontend/chal-delhi/dist/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.DS_Store
+.git/
+.gitignore
+*.md
+!README.md
+tests/
+*.json
+!package.json
+!package-lock.json
+!railway.json
+!render.yaml
+
