@@ -176,14 +176,21 @@ if PARSEBOT_AVAILABLE:
             # Step 2: Send HTML to Parse.bot and return result (also in thread to handle sync HTTPException)
             result = await asyncio.to_thread(call_parsebot, html, bool(payload.debug))
             return result
-        except HTTPException:
-            # Re-raise HTTPException as-is
+        except HTTPException as he:
+            # Re-raise HTTPException as-is (includes Playwright browser errors)
             raise
         except Exception as e:
             # Catch any other exceptions and convert to HTTPException
+            error_msg = str(e)
+            # Provide helpful message for Playwright errors
+            if "Executable doesn't exist" in error_msg or "playwright install" in error_msg.lower():
+                raise HTTPException(
+                    status_code=503,
+                    detail="Playwright browser binaries not installed. The build process should install them automatically. If this error persists, please check the deployment logs."
+                )
             raise HTTPException(
                 status_code=500,
-                detail=f"Error processing non-technical events: {str(e)}"
+                detail=f"Error processing non-technical events: {error_msg}"
             )
 
 if PARSEBOT_TECH_AVAILABLE:
