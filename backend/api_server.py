@@ -49,9 +49,19 @@ chal_dilli = None
 async def lifespan(app: FastAPI):
     """Lifespan context manager - starts background tasks immediately"""
     # Yield immediately - server is ready, Render can detect port
+    print("=" * 60)
+    print("🚀 Server starting, lifespan context entered")
+    print("=" * 60)
     yield
     # Start initialization AFTER server is up (non-blocking)
-    asyncio.create_task(initialize_chal_dilli_background())
+    print("=" * 60)
+    print("✅ Server ready, starting background initialization...")
+    print("=" * 60)
+    # Create task and ensure it runs
+    task = asyncio.create_task(initialize_chal_dilli_background())
+    print(f"✅ Background task created: {task}")
+    # Give it a moment to start
+    await asyncio.sleep(0.1)
     # Cleanup if needed
     pass
 
