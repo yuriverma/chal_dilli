@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Install system dependencies for Playwright
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -27,19 +27,21 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
+# Copy requirements first for better caching
 COPY backend/requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
+# Install Playwright browsers (system deps already installed above)
 RUN playwright install chromium
 
 # Copy application code
 COPY . .
 
-# Expose port
-EXPOSE $PORT
+# Expose port (Railway sets PORT env var)
+EXPOSE 8080
 
 # Start command
-CMD uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
+CMD uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-8080}
 
