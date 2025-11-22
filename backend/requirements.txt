@@ -9,10 +9,7 @@ numpy
 python-dotenv
 beautifulsoup4
 pdfplumber
-chromadb
-sentence-transformers
 scikit-learn
-datasets
 playwright
 fuzzywuzzy
 python-Levenshtein

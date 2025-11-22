@@ -120,9 +120,12 @@ pycache/
 # Data files (keep required data)
 data/*.json
 data/*.xml
+data/*.pdf
 !data/food_data.csv
 !data/hinglish_smalltalk.csv
+!data/dmrc_gates.csv
 !data/DMRC_GTFS (1)/
+!data/GTFS/
 
 # Temporary files
 *.tmp
