@@ -60,22 +60,30 @@ chal_dilli = None
 # ========== STARTUP EVENT ==========
 @app.on_event("startup")
 async def startup_event():
-    """Initialize models, routers, scrapers on startup"""
+    """Initialize models, routers, scrapers on startup - non-blocking"""
+    # Start initialization in background task so server starts immediately
+    asyncio.create_task(initialize_chal_dilli_background())
+
+async def initialize_chal_dilli_background():
+    """Initialize CHAL DILLI in background - non-blocking"""
     global chal_dilli
     try:
         from chal_dilli_enhanced import ChalDilliEnhanced
-        print("🔄 Initializing CHAL DILLI Enhanced...")
-        chal_dilli = ChalDilliEnhanced()
+        print("🔄 Initializing CHAL DILLI Enhanced in background...")
+        # Run initialization in thread pool to avoid blocking event loop
+        chal_dilli = await asyncio.to_thread(ChalDilliEnhanced)
+        print("✅ CHAL DILLI Enhanced initialized successfully")
         # Update data in background task (non-blocking)
         asyncio.create_task(update_data_background())
-        print("✅ CHAL DILLI Enhanced initialized successfully")
     except Exception as e:
         print(f"⚠️ Warning: Error initializing CHAL DILLI: {e}")
+        import traceback
+        traceback.print_exc()
         chal_dilli = None
 
 async def update_data_background():
     """Background task to update data after startup"""
-    await asyncio.sleep(1)  # Wait 1 second for server to be ready
+    await asyncio.sleep(2)  # Wait 2 seconds for server to be ready
     if chal_dilli:
         try:
             # Run update_data in thread pool to avoid blocking
