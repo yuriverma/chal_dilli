@@ -162,20 +162,34 @@ if PARSEBOT_TECH_AVAILABLE:
 # ========== API ENDPOINTS ==========
 @app.post("/chat", response_model=QueryResponse)
 async def chat_endpoint(request: QueryRequest):
-    """Main chat endpoint for CHAL DILLI"""
+    """Main chat endpoint for CHAL DILLI - non-blocking"""
     try:
         if chal_dilli is None:
             # Fallback response if initialization failed
             return QueryResponse(
-                response="Sorry bhai, system thoda busy hai. Please try again in a moment!",
+                response="Sorry bhai, system abhi initialize ho raha hai. Thoda wait karo ya phir try karo!",
                 query=request.query,
                 timestamp=datetime.now().isoformat(),
-                metro_status="Unknown",
+                metro_status="Initializing",
                 language="hinglish",
                 data_freshness=datetime.now().isoformat()
             )
         
-        response = chal_dilli.get_delhi_response(request.query)
+        # Run get_delhi_response in thread pool with timeout to avoid blocking
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(chal_dilli.get_delhi_response, request.query),
+                timeout=10.0  # 10 second timeout
+            )
+        except asyncio.TimeoutError:
+            return QueryResponse(
+                response="Sorry bhai, response thoda slow aa raha hai. Please try again!",
+                query=request.query,
+                timestamp=datetime.now().isoformat(),
+                metro_status="Timeout",
+                language="hinglish",
+                data_freshness=datetime.now().isoformat()
+            )
         
         # Ensure response has all required fields
         if not isinstance(response, dict):
@@ -192,6 +206,8 @@ async def chat_endpoint(request: QueryRequest):
         return QueryResponse(**response)
     except Exception as e:
         # Return error response instead of raising exception
+        import traceback
+        traceback.print_exc()
         return QueryResponse(
             response=f"Sorry bhai, error aaya: {str(e)}. Please try again!",
             query=request.query,

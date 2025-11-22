@@ -45,11 +45,8 @@ class ChalDilliEnhanced:
         
         # DO NOT call update_data() here - it's blocking
         # It will be called in background task after startup
-        # Warm small-talk index (non-blocking best effort)
-        try:
-            self.conv.load_index()
-        except Exception:
-            pass
+        # DO NOT load index here - it can be slow and block initialization
+        # Index will be loaded lazily when needed
         
     def update_data(self):
         """Update all data sources"""

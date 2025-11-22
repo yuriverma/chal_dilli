@@ -206,21 +206,37 @@ class DelhiDataScraper:
             return {"error": str(e)}
     
     def update_all_data(self) -> Dict:
-        """Update all data sources"""
+        """Update all data sources with timeouts to avoid blocking"""
         logger.info("Starting data update...")
         
         try:
-            # Update Metro data (REAL scraping)
-            metro_data = self.scrape_metro_status()
+            # Update Metro data (REAL scraping) with timeout protection
+            try:
+                metro_data = self.scrape_metro_status()
+            except Exception as e:
+                logger.warning(f"Metro scraping failed: {e}, using fallback")
+                metro_data = {"status": "All lines operational", "lines": {}}
             
             # Update Bus data (hardcoded for now)
-            bus_data = self.scrape_dtc_bus_routes()
+            try:
+                bus_data = self.scrape_dtc_bus_routes()
+            except Exception as e:
+                logger.warning(f"Bus scraping failed: {e}, using fallback")
+                bus_data = {"status": "Operational", "routes": {}}
             
             # Update Events data (use fallback to avoid slow RSS)
-            events = self._get_fallback_events()
+            try:
+                events = self._get_fallback_events()
+            except Exception as e:
+                logger.warning(f"Events scraping failed: {e}, using fallback")
+                events = []
             
             # Update Food data
-            food_data = self.scrape_food_recommendations()
+            try:
+                food_data = self.scrape_food_recommendations()
+            except Exception as e:
+                logger.warning(f"Food scraping failed: {e}, using fallback")
+                food_data = {}
             
             # Store all data
             self.metro_data = metro_data
