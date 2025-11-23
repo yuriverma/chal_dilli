@@ -22,6 +22,7 @@ function AppContent() {
       setLoading(false);
     }
   }, [location.pathname, hasLoaded]);
+// trigger netlify build
 
   return (
     <>
