@@ -4,7 +4,7 @@
 
 
 import React, { useEffect, useRef, useState } from 'react';
-import bg2 from "../assets/bg2.mp4";
+import bg2 from "../assets/bg2.MP4";
 
 const LandingPage = () => {
   const audioRef = useRef(null);
