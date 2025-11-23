@@ -1,72 +1,119 @@
-import React from 'react';
-import bg from "../assets/bg.png"
+
+
+
+
+
+import React, { useEffect, useRef, useState } from 'react';
+import bg2 from "../assets/bg2.mp4";
 
 const LandingPage = () => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showStartScreen, setShowStartScreen] = useState(true);
+
+  const handleStartExperience = () => {
+    setShowStartScreen(false);
+    if (audioRef.current) {
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch(error => {
+        console.log("Audio play failed:", error);
+      });
+    }
+  };
+
+  const toggleMute = () => {
+    if (audioRef.current) {
+      audioRef.current.muted = !audioRef.current.muted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  useEffect(() => {
+    // Cleanup: pause audio when component unmounts
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, []);
+
   return (
-    <div
-      className="min-h-screen w-full relative overflow-hidden font-mono"
-      style={{
-        backgroundImage: `url(${bg})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
-      }}
-    >
+    <div className="min-h-screen w-full relative overflow-hidden font-mono">
+      {/* Background Video */}
+      <video
+        src={bg2}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute top-0 left-0 w-full h-full object-cover -z-10"
+      />
+
+      {/* Background Audio */}
+      <audio
+        ref={audioRef}
+        loop
+        preload="auto"
+      >
+        <source src="/bg_music.m4a" type="audio/mp4" />
+        Your browser does not support the audio element.
+      </audio>
+
+      {/* Start Experience Overlay */}
+      {showStartScreen && (
+        <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="text-center">
+            <h2 className="text-4xl font-bold text-white mb-6">Welcome to Chal Dilli</h2>
+            <button
+              onClick={handleStartExperience}
+              className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white text-xl font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
+            >
+              delhi se hai penchod....
+            </button>
+            {/* <p className="text-white/70 mt-4 text-sm">Click to enable audio</p> */}
+          </div>
+        </div>
+      )}
+
       {/* Overlay for better text readability */}
       <div className="absolute inset-0 bg-black/40 z-0" />
 
-      {/* Main Title */}
-      <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-30">
-        <h1 className="text-5xl font-bold text-amber-900 text-center mb-2">Chal Dilli</h1>
-        <p className="text-amber-800 text-center text-lg">The only map Dilliwalas trust</p>
-      </div>
-
-      {/* Terminal Boot Content */}
-      <div className="relative z-10 px-12 pt-32 text-amber-100 text-sm space-y-3">
-        <p><span className="text-amber-600">19:12:51</span> INCOMING HTTP REQUEST DETECTED ...</p>
-        <p><span className="text-amber-600">19:12:54</span> SERVICE WAKING UP ...</p>
-
-        <div
-          className="text-xs text-white border border-white/20 p-4 rounded w-fit leading-tight"
-          style={{
-            background: 'linear-gradient(135deg, rgba(128, 128, 128, 0.1), rgba(128, 128, 128, 0.05))',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-          }}
+      {/* Mute/Unmute Button */}
+      {isPlaying && (
+        <button
+          onClick={toggleMute}
+          className="absolute top-6 right-6 z-40 bg-black/50 hover:bg-black/70 text-white p-3 rounded-full transition-all backdrop-blur-sm"
+          aria-label={isMuted ? "Unmute" : "Mute"}
         >
-          <pre>
-            {String.raw`
-╔═════════════════════════════╗
-║                             ║
-║     WELCOME TO DIL SE       ║
-║         DILLI               ║
-║                             ║
-╚═════════════════════════════╝`}
-          </pre>
-        </div>
-        
+          {isMuted ? (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+          )}
+        </button>
+      )}
 
-        <p><span className="text-amber-600">19:12:58</span> ALLOCATING COMPUTE RESOURCES ...</p>
-        <p><span className="text-amber-600">19:13:01</span> PREPARING INSTANCE FOR INITIALIZATION ...</p>
-        <p><span className="text-amber-600">19:13:05</span> STARTING THE INSTANCE ...</p>
-        <p><span className="text-amber-600">19:13:11</span> ENVIRONMENT VARIABLES INJECTED ...</p>
-        <p><span className="text-amber-600">19:13:14</span> DIL SE DILLI: A local Delhi exploration chatbot</p>
-        <p><span className="text-amber-600">19:13:17</span> READY TO CHAT ABOUT DELHI ...</p>
-
-        {/* Additional Delhi-themed terminal messages */}
-        {/* <p><span className="text-amber-600">19:13:20</span> LOADING DELHI KNOWLEDGE BASE ...</p>
-        <p><span className="text-amber-600">19:13:23</span> ✓ RED FORT DATABASE CONNECTED</p>
-        <p><span className="text-amber-600">19:13:25</span> ✓ CHANDNI CHOWK FOOD MAP LOADED</p>
-        <p><span className="text-amber-600">19:13:27</span> ✓ METRO ROUTES SYNCHRONIZED</p>
-        <p><span className="text-amber-600">19:13:30</span> ✓ LOCAL RECOMMENDATIONS ENGINE ACTIVE</p>
-        <p><span className="text-amber-600">19:13:33</span> SYSTEM READY - ASK ME ABOUT DELHI!</p> */}
-
-        {/* Blinking cursor */}
-        <div className="flex items-center mt-4">
-          <span className="text-amber-400">$</span>
-          <span className="ml-2 text-amber-100">Waiting for your Delhi questions...</span>
-          <span className="ml-1 text-amber-400 animate-pulse">|</span>
-        </div>
+      {/* Main Title - Centered */}
+      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30">
+        <h1 className="text-7xl font-bold text-white text-center mb-4">
+          <span className="inline-block overflow-hidden whitespace-nowrap animate-typing">
+            Chal Dilli
+            <br />
+            चल दिल्ली
+            <br />
+            ਚਲ ਦਿੱਲੀ
+            <br />
+            چل دہلی
+          </span>
+        </h1>
+        <p className="text-white text-center text-2xl">DILWALE SE PUCHO DILLI KA RASTA</p>
       </div>
 
       {/* Delhi-themed floating particles */}
@@ -84,6 +131,20 @@ const LandingPage = () => {
           />
         ))}
       </div>
+
+      <style jsx>{`
+        @keyframes typing {
+          from {
+            width: 0;
+          }
+          to {
+            width: 100%;
+          }
+        }
+        .animate-typing {
+          animation: typing 2s steps(10, end) forwards;
+        }
+      `}</style>
     </div>
   );
 };
