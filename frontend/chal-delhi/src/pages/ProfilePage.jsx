@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import bg2 from "../assets/bg2.mp4";
+import bg2 from "../assets/bg2.MP4";
 
 const ProfilePage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
