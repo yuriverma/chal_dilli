@@ -70,7 +70,7 @@ const LandingPage = () => {
               onClick={handleStartExperience}
               className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white text-xl font-bold rounded-lg transition-all transform hover:scale-105 shadow-lg"
             >
-              delhi se hai penchod....
+              Delhi mein aapka Swagat hai
             </button>
             {/* <p className="text-white/70 mt-4 text-sm">Click to enable audio</p> */}
           </div>
