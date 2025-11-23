@@ -143,6 +143,8 @@ const LandingPage = () => {
         }
         .animate-typing {
           animation: typing 2s steps(10, end) forwards;
+
+          
         }
       `}</style>
     </div>
