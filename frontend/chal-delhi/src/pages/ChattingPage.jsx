@@ -1,5 +1,5 @@
 import React, { useState, useEffect} from 'react';
-import bg2 from "../assets/bg2.mp4";
+import bg2 from "../assets/bg2.MP4";
 
 // const PARSEBOT_NON_TECH_ENDPOINT = "http://localhost:8000/api/parse-events-from-url";
 const PARSEBOT_NON_TECH_ENDPOINT = "https://web-production-ca761.up.railway.app/api/parse-events-from-url";
