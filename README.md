@@ -107,11 +107,15 @@ or on a PRO account — but the free path is Render.
 https://dashboard.render.com/blueprints  ->  New Blueprint Instance
 ```
 
-Leave the three `sync: false` variables blank; every one is optional and the
-table below says what happens without it. Note that `render.yaml` pins
-`PYTHON_VERSION` and there is a `.python-version` file: pandas 3.x needs Python
->= 3.11, and leaving the interpreter to the platform default is what broke
-three Hugging Face builds in a row.
+Nothing to fill in — the blueprint asks for no values. `ADMIN_TOKEN` and
+`PARSEBOT_API_KEY` are secrets and are deliberately absent rather than blank;
+add them under **Environment** in the service settings if you want the admin
+re-scrape or the events endpoints. Without them those two features return 404
+and 503 respectively and the rest works, which is the point.
+
+Note that `render.yaml` pins `PYTHON_VERSION` and there is a `.python-version`
+file: pandas 3.x needs Python >= 3.11, and leaving the interpreter to the
+platform default is what broke three Hugging Face builds in a row.
 
 The cost of the free tier is that the instance idles down after inactivity, so
 the first request after a quiet spell waits for a cold boot. The frontend

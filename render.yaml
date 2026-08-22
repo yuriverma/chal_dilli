@@ -45,16 +45,26 @@ services:
       # belt and braces because the two mechanisms differ per platform.
       - key: PYTHON_VERSION
         value: "3.12"
-      # Set this to the deployed frontend origin once it exists. Until then the
-      # backend allows all origins without credentials, which is fine for a
-      # public read-only API but should be tightened.
+      # Given a real value rather than `sync: false`. Render treats a
+      # sync:false variable as required and blocks the deploy until you type
+      # something, which is wrong for a variable that is designed to be
+      # optional -- it turned "deploy this blueprint" into a form with three
+      # mandatory fields and an error banner.
+      #
+      # "*" is what the code falls back to when this is unset: all origins,
+      # without credentials. Fine for a public read-only API. Narrow it to the
+      # frontend's origin in the Render dashboard once the frontend is up.
       - key: ALLOWED_ORIGINS
-        sync: false
-      # Leave unset and POST /update-data 404s instead of exposing a scrape
-      # trigger to the internet.
-      - key: ADMIN_TOKEN
-        sync: false
-      # Leave unset and the two event endpoints return 503. Everything else
-      # works normally.
-      - key: PARSEBOT_API_KEY
-        sync: false
+        value: "*"
+
+      # ADMIN_TOKEN and PARSEBOT_API_KEY are deliberately absent, not blank.
+      # Both are secrets, so they belong in the dashboard rather than in a
+      # file in the repo, and the app has a defined behaviour without either:
+      #
+      #   ADMIN_TOKEN unset       -> POST /update-data returns 404, so the
+      #                              scrape trigger is not exposed at all
+      #   PARSEBOT_API_KEY unset  -> the two event endpoints return 503 and
+      #                              everything else works normally
+      #
+      # Add them under Environment in the service settings if you want those
+      # features.
