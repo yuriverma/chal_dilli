@@ -165,7 +165,18 @@ def main():
     _hand_root_to_gradio(fastapi_app)
     # Gradio at the root; /chat, /health and friends are explicit routes on the
     # same app, so they are matched before the mount and keep working.
-    app = gr.mount_gradio_app(fastapi_app, build_ui(), path="/")
+    #
+    # ssr_mode=False is required, not a preference. A Space sets
+    # GRADIO_SSR_MODE=true in the environment, and with SSR on, Gradio spawns a
+    # Node server that binds mount_gradio_app's server_port -- 7860, the same
+    # port we then hand to uvicorn. Node wins the race and uvicorn dies with
+    # "[Errno 98] address already in use". Reproduce it locally with:
+    #
+    #     GRADIO_SSR_MODE=true PORT=7860 python app.py
+    #
+    # We serve Gradio through our own uvicorn process, so its SSR server has
+    # nothing to do here anyway.
+    app = gr.mount_gradio_app(fastapi_app, build_ui(), path="/", ssr_mode=False)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
 
 

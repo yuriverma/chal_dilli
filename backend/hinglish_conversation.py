@@ -77,6 +77,22 @@ class HinglishConversationManager:
         self._cache_csv = str(_DATA_DIR / "hinglish_smalltalk.csv")
 
     def is_available(self) -> bool:
+        """Whether to use the 1M-row HuggingFace corpus rather than the local CSV.
+
+        Opt-in by environment variable, deliberately, rather than "whenever
+        `datasets` happens to be importable". A Hugging Face Space's base image
+        pre-installs `datasets`, so the importable test silently enabled this in
+        production: the first small-talk message would trigger a download of a
+        one-million-row dataset at request time, inside the chat endpoint's 10
+        second timeout, on free-tier CPU. It looked like a random hang.
+
+        Set HINGLISH_USE_HF_DATASET=1 to enable it somewhere that can afford
+        the download. Everywhere else falls back to data/hinglish_smalltalk.csv.
+        """
+        if os.getenv("HINGLISH_USE_HF_DATASET", "").strip().lower() not in (
+            "1", "true", "yes", "on"
+        ):
+            return False
         return load_dataset is not None and TfidfVectorizer is not None
 
     def _load_from_csv_cache(self) -> bool:
