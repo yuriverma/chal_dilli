@@ -87,11 +87,38 @@ npm run dev
 
 ## Deploying
 
-The backend goes to a **Hugging Face Space** and the frontend to **Netlify**.
-Both are free, and unlike a free Render instance a Space does not idle down
-between visitors.
+The backend goes to **Render** and the frontend to **Netlify**. Both free.
 
-**Backend.** Create a Space with SDK **Gradio** — not Docker, which is a paid
+**Hugging Face Spaces will not host this backend on a free account**, despite
+what an earlier version of this file said. Creating a Gradio or Docker Space on
+`cpu-basic` returns 402:
+
+> Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on
+> free `cpu-basic` requires a PRO subscription.
+
+Only Static Spaces are free, and a static host cannot run Python. Downgrading
+an existing Space is refused for the same reason. `app.py`, the Gradio UI and
+the Space frontmatter below are kept — they work, and they are useful locally
+or on a PRO account — but the free path is Render.
+
+**Backend on Render.** Point Render at this repo and it reads `render.yaml`:
+
+```
+https://dashboard.render.com/blueprints  ->  New Blueprint Instance
+```
+
+Leave the three `sync: false` variables blank; every one is optional and the
+table below says what happens without it. Note that `render.yaml` pins
+`PYTHON_VERSION` and there is a `.python-version` file: pandas 3.x needs Python
+>= 3.11, and leaving the interpreter to the platform default is what broke
+three Hugging Face builds in a row.
+
+The cost of the free tier is that the instance idles down after inactivity, so
+the first request after a quiet spell waits for a cold boot. The frontend
+handles that explicitly rather than reporting an outage — a failed request
+polls `/init-status` and says "waking up".
+
+**Backend on a Space (PRO accounts only).** Create a Space with SDK **Gradio** — not Docker, which is also a paid
 feature — on the free CPU hardware, then:
 
 ```bash
@@ -146,14 +173,19 @@ Run the same thing locally with `python app.py`. The `Dockerfile` is still
 current and is what `render.yaml` and any other Docker host would use.
 
 **Frontend.** Point Netlify at this repo; `netlify.toml` already has the right
-base directory and SPA redirect. Set one build variable:
+base directory and SPA redirect. Set one build variable to the backend's URL:
 
 ```
-VITE_BRAIN_API_URL = https://<user>-<space-name>.hf.space
+VITE_BRAIN_API_URL = https://chal-dilli-backend.onrender.com
 ```
 
-Leave `VITE_AUTH_API_URL` unset. `render.yaml` is kept as a working fallback if
-you would rather use Render.
+Leave `VITE_AUTH_API_URL` unset — that is what makes the app open straight into
+the chat instead of gating on a login service that no longer exists. Then set
+`ALLOWED_ORIGINS` on the backend to the Netlify origin, which closes the
+permissive CORS default.
+
+A Static Space is a free alternative to Netlify for this half, since the
+frontend is just built files — only the Python backend needs a paid Space.
 
 ## Configuration
 
