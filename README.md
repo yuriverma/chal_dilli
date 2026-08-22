@@ -83,6 +83,40 @@ cp .env.example .env.local          # point VITE_BRAIN_API_URL at the backend
 npm run dev
 ```
 
+## Deploying
+
+The backend goes to a **Hugging Face Space** and the frontend to **Netlify**.
+Both are free, and unlike a free Render instance a Space does not idle down
+between visitors.
+
+**Backend.** Create a Space with SDK `docker` and the free CPU hardware, then
+push this repo to it. The `Dockerfile` already targets Spaces — it sets
+`PORT=7860`, which is what Spaces expects — and the frontmatter at the top of
+this README is the Space's config.
+
+```bash
+git remote add space https://huggingface.co/spaces/<user>/<space-name>
+git push space main
+```
+
+Every file in the repo is under 10MB, so this is a plain git push with no LFS
+setup. That is why `data/GTFS/bus_edges.csv` exists instead of the 76MB feed it
+is derived from.
+
+Set `ALLOWED_ORIGINS` to the frontend origin in the Space's settings once the
+frontend is up. `ADMIN_TOKEN` and `PARSEBOT_API_KEY` are optional — see the
+table below for what happens without them.
+
+**Frontend.** Point Netlify at this repo; `netlify.toml` already has the right
+base directory and SPA redirect. Set one build variable:
+
+```
+VITE_BRAIN_API_URL = https://<user>-<space-name>.hf.space
+```
+
+Leave `VITE_AUTH_API_URL` unset. `render.yaml` is kept as a working fallback if
+you would rather use Render.
+
 ## Configuration
 
 Everything external is an environment variable; nothing is hardcoded. Copy
