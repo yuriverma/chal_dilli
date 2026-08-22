@@ -8,14 +8,27 @@
 #
 # These pins need Python >= 3.11 (pandas 3.x does). A Gradio Space defaults to
 # Python 3.10, which cannot install them at all, so README.md's frontmatter
-# sets `python_version: "3.12"`. Check a change here against the target before
-# deploying, rather than finding out from a failed build:
+# sets `python_version: "3.12"`.
+#
+# A local dry run catches the coarse problems:
 #
 #   pip install --dry-run --only-binary=:all: --python-version 3.12 \
 #       --target /tmp/check -r requirements.txt
+#
+# but it does not reproduce a Space build. Two things it cannot model: the
+# Space appends `gradio[oauth,mcp]==<sdk_version>`, `torch`, `spaces` and
+# uvicorn/websockets floors to the same pip invocation, and it resolves for
+# linux x86_64 against a base image that already has packages installed.
+# Cross-platform dry runs get the manylinux baseline and environment markers
+# subtly wrong. For anything involving a version cap, the build log is the
+# authority — read it rather than guessing.
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
-pydantic==2.13.4
+# Capped by the Space, not by us. Every Gradio Space build appends
+# `gradio[oauth,mcp]==<sdk_version>` to this install, and gradio 6.25.0's mcp
+# extra requires pydantic<=2.12.5,>=2.11.10. Asking for 2.13.4 made the
+# resolution impossible. fastapi 0.141.1 only needs >=2.9.0, so this is free.
+pydantic==2.12.5
 requests==2.34.2
 feedparser==6.0.14
 pandas==3.0.5
