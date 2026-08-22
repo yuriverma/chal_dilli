@@ -24,5 +24,7 @@ export const DEFAULT_TECH_PAGE =
   import.meta.env.VITE_TECH_EVENTS_URL || "https://unstop.com/hackathons?filters=open";
 
 export const CHAT_ENDPOINT = `${BRAIN_API_URL}/chat`;
+// Polled after a failed chat request to tell "still waking up" from "broken".
+export const INIT_STATUS_ENDPOINT = `${BRAIN_API_URL}/init-status`;
 export const PARSEBOT_NON_TECH_ENDPOINT = `${BRAIN_API_URL}/api/parse-events-from-url`;
 export const PARSEBOT_TECH_ENDPOINT = `${BRAIN_API_URL}/api/parse-technical-events`;
