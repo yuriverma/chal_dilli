@@ -1,4 +1,4 @@
-import React, { useState, useEffect} from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import bg2 from "../assets/bg2.MP4";
 import {
   AUTH_API_URL,
@@ -113,11 +113,39 @@ const LoadingDots = () => (
   </div>
 );
 
+// The conversation this tab belongs to. Sent with every message so the
+// backend can resolve follow-ups ("and from there to Saket?") against what has
+// already been established. sessionStorage rather than localStorage: it
+// survives a reload but not a closed tab, which matches how long the backend
+// keeps the conversation anyway.
+const CONVERSATION_KEY = "chalDilliConversationId";
+
+const readStoredConversationId = () => {
+  try {
+    return sessionStorage.getItem(CONVERSATION_KEY) || null;
+  } catch {
+    // Private mode and blocked site data both throw here. Losing the id only
+    // costs follow-up resolution, so carry on without it.
+    return null;
+  }
+};
+
+const storeConversationId = (id) => {
+  try {
+    sessionStorage.setItem(CONVERSATION_KEY, id);
+  } catch {
+    /* non-fatal, see above */
+  }
+};
+
 const ChattingPage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // A ref, not state: it must be readable synchronously inside sendMessage and
+  // changing it should never trigger a re-render.
+  const conversationIdRef = useRef(readStoredConversationId());
   // Neutral placeholder until (and unless) the auth service resolves a real
   // user — the old default showed a fake name to every visitor.
   const [userName, setUserName] = useState("Dilli Vasi");
@@ -138,7 +166,12 @@ const ChattingPage = () => {
       const chatPromise = fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: input }),
+        body: JSON.stringify({
+          query: input,
+          // Null on the very first message; the backend mints one and returns
+          // it below.
+          conversation_id: conversationIdRef.current,
+        }),
       }).then((r) => r.json());
 
       const nonTechPromise = eventIntent.nonTech
@@ -176,12 +209,22 @@ const ChattingPage = () => {
       const nonTechEvents = extractNonTechEventList(nonTechPayload);
       const techEvents = extractTechEventList(techPayload);
 
+      // Adopt the conversation the backend answered under, so the next message
+      // continues it instead of starting fresh.
+      if (data.conversation_id) {
+        conversationIdRef.current = data.conversation_id;
+        storeConversationId(data.conversation_id);
+      }
+
       setMessages((prev) => [
         ...prev.slice(0, -1),
         {
           user: input,
           bot: data.response,
           recommendations: data.recommendations || null,
+          // Set only when an elliptical follow-up was rewritten, so the user
+          // can see which place we assumed.
+          resolvedContext: data.resolved_context || null,
           nonTechEvents,
           techEvents,
           rawNonTechEvents: nonTechPayload,
@@ -333,6 +376,11 @@ const ChattingPage = () => {
                 {m.bot && (
                   <div className="flex justify-start">
                     <div className="max-w-[90%] md:max-w-[75%] bg-amber-900/60 border border-amber-700/30 rounded-lg px-3 md:px-4 py-2 text-amber-50 text-xs md:text-sm whitespace-pre-wrap">
+                      {m.resolvedContext && (
+                        <div className="mb-2 pb-2 border-b border-amber-700/30 text-[10px] md:text-xs text-amber-300/80 italic">
+                          {m.resolvedContext}
+                        </div>
+                      )}
                       {m.bot}
                       {m.recommendations && (
                         <div className="mt-3 space-y-2 pt-2 border-t border-amber-700/30">

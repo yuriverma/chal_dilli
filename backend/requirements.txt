@@ -13,6 +13,10 @@ playwright==1.62.0
 # Removed: httpx (never imported), fuzzywuzzy + python-Levenshtein (never
 # imported — matching uses difflib and a hand-rolled Jaccard).
 
+# Test-only dependencies live in requirements-dev.txt so they stay out of the
+# deploy image. The suite itself is stdlib unittest and needs no runner:
+#   python -m unittest discover -s tests
+
 # Only needed to regenerate data/dmrc_gates.csv from the DMRC PDF.
 # Not imported at request time — keep it out of the runtime image if you care
 # about cold-start size.

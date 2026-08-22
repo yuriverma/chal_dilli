@@ -27,6 +27,11 @@ try:
 except Exception:
     pass
 
+# Conversation ids are minted here so that every early return can echo one,
+# including the paths taken before the orchestrator has finished booting. This
+# import is cheap - no pandas, no GTFS - so it stays at module level.
+from conversation_state import ConversationStore
+
 # Import ParseBot helpers so we can expose the same endpoint on this main app
 try:
     from parsebot_from_url import fetch_full_html, call_parsebot, UrlPayload
@@ -165,6 +170,10 @@ async def update_data_background():
 # ========== PYDANTIC MODELS ==========
 class QueryRequest(BaseModel):
     query: str
+    # Opts the turn into follow-up resolution ("and from there to Saket?").
+    # Omit it on the first message; the response returns an id to send back on
+    # every subsequent message in the same conversation.
+    conversation_id: Optional[str] = None
 
 class QueryResponse(BaseModel):
     response: str
@@ -176,6 +185,14 @@ class QueryResponse(BaseModel):
     # so this is legitimately null on early requests. It must NOT be required.
     data_freshness: Optional[str] = None
     recommendations: Optional[Dict[str, Any]] = None  # Structured recommendations for food queries
+    # Echo the conversation this turn belongs to, so the client can keep
+    # sending it without having to generate one itself.
+    conversation_id: Optional[str] = None
+    # Set only when an elliptical follow-up was rewritten. Describes the
+    # substitution ('"there" -> Rajiv Chowk') and the query actually answered,
+    # so a wrong guess is visible rather than silent.
+    resolved_context: Optional[str] = None
+    resolved_query: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -242,6 +259,10 @@ if PARSEBOT_TECH_AVAILABLE:
 @app.post("/chat", response_model=QueryResponse)
 async def chat_endpoint(request: QueryRequest):
     """Main chat endpoint for CHAL DILLI - non-blocking"""
+    # Mint an id on the first message of a conversation so the client always
+    # gets one back to reuse. Every early-return below echoes it too, otherwise
+    # a timeout on turn one would silently start a new conversation.
+    conversation_id = request.conversation_id or ConversationStore.new_id()
     try:
         if chal_dilli is None:
             # Fallback response if initialization failed
@@ -251,13 +272,16 @@ async def chat_endpoint(request: QueryRequest):
                 timestamp=datetime.now().isoformat(),
                 metro_status="Initializing",
                 language="hinglish",
-                data_freshness=datetime.now().isoformat()
+                data_freshness=datetime.now().isoformat(),
+                conversation_id=conversation_id
             )
-        
+
         # Run get_delhi_response in thread pool with timeout to avoid blocking
         try:
             response = await asyncio.wait_for(
-                asyncio.to_thread(chal_dilli.get_delhi_response, request.query),
+                asyncio.to_thread(
+                    chal_dilli.get_delhi_response, request.query, conversation_id
+                ),
                 timeout=10.0  # 10 second timeout
             )
         except asyncio.TimeoutError:
@@ -267,7 +291,8 @@ async def chat_endpoint(request: QueryRequest):
                 timestamp=datetime.now().isoformat(),
                 metro_status="Timeout",
                 language="hinglish",
-                data_freshness=datetime.now().isoformat()
+                data_freshness=datetime.now().isoformat(),
+                conversation_id=conversation_id
             )
         
         # Ensure response has all required fields
@@ -285,6 +310,7 @@ async def chat_endpoint(request: QueryRequest):
         _fill("timestamp", datetime.now().isoformat())
         _fill("metro_status", chal_dilli.metro_data.get("status", "All lines operational"))
         _fill("language", "hinglish")
+        _fill("conversation_id", conversation_id)
         response.setdefault("recommendations", None)
         # data_freshness stays None until the first scraper run — that is valid.
         
@@ -299,7 +325,8 @@ async def chat_endpoint(request: QueryRequest):
             timestamp=datetime.now().isoformat(),
             metro_status="Error",
             language="hinglish",
-            data_freshness=datetime.now().isoformat()
+            data_freshness=datetime.now().isoformat(),
+            conversation_id=conversation_id
         )
 
 @app.get("/health", response_model=HealthResponse)

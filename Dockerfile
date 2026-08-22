@@ -44,7 +44,11 @@ COPY . .
 ENV PORT=7860
 EXPOSE 7860
 
-# Single worker on purpose: each worker builds its own in-memory GTFS graph
-# (~370MB RSS), so 2 workers would OOM anything under 1GB.
+# Single worker on purpose, for two reasons. Each worker builds its own
+# in-memory GTFS graph, so workers do not share that cost. More importantly,
+# conversation state (backend/conversation_state.py) lives in process memory:
+# a second worker would serve half the follow-ups from an empty store and
+# "and from there to Saket?" would fail at random. Measured footprint is
+# ~45MB RSS, not the ~370MB an earlier revision of this comment claimed.
 CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]
 

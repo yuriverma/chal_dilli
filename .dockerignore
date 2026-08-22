@@ -21,10 +21,10 @@ tests/
 !README.md
 AUDIO-*.m4a
 
-# GTFS fare tables: 67MB and NEVER read by any code path. dtc_router.py only
-# opens stops.csv, routes.csv, trips.csv and stop_times.csv.
-data/GTFS/fare_attributes.csv
-data/GTFS/fare_rules.csv
+# The GTFS fare tables that used to be excluded here (fare_attributes.csv,
+# fare_rules.csv - 65MB, read by no code path) are now deleted from the repo
+# outright. dtc_router.py only opens stops.csv, routes.csv, trips.csv and
+# stop_times.csv.
 
 # Source PDF for the one-off gates parser; dmrc_gates.csv is the shipped output.
 data/*.pdf
