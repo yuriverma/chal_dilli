@@ -57,6 +57,10 @@ from contextlib import asynccontextmanager
 
 # Global instance - will be initialized in background
 chal_dilli = None
+# Why initialisation failed, if it did. Distinguishes "still booting" from
+# "booted and broken" on /health and /init-status, which is the difference
+# between waiting and reading the logs.
+_init_error: Optional[str] = None
 
 # Lifespan context manager - ensures server starts immediately
 @asynccontextmanager
@@ -107,7 +111,7 @@ app.add_middleware(
 
 async def initialize_chal_dilli_background():
     """Initialize CHAL DILLI in background - non-blocking"""
-    global chal_dilli
+    global chal_dilli, _init_error
     import time
     start_time = time.time()
     try:
@@ -137,6 +141,7 @@ async def initialize_chal_dilli_background():
         import traceback
         traceback.print_exc()
         chal_dilli = None
+        _init_error = f"import error: {e}"
     except Exception as e:
         print("=" * 60)
         print(f"❌ INITIALIZATION ERROR: {e}")
@@ -145,6 +150,7 @@ async def initialize_chal_dilli_background():
         traceback.print_exc()
         print("=" * 60)
         chal_dilli = None
+        _init_error = str(e)
 
 async def update_data_background():
     """Background task to update data after startup"""
@@ -199,6 +205,9 @@ class HealthResponse(BaseModel):
     service: str
     timestamp: str
     version: str
+    # Set when the orchestrator is not serving, so a failed deploy can be told
+    # apart from a container that is merely still warming up.
+    detail: Optional[str] = None
 
 
 # ========== PARSEBOT / BOOKMYSHOW EVENTS ENDPOINT ==========
@@ -331,20 +340,46 @@ async def chat_endpoint(request: QueryRequest):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint.
+
+    Always returns 200, deliberately: the routing graphs take a few seconds to
+    build and a platform health check that got a 503 during that window would
+    kill the container in a loop. `status` carries the real state, so this
+    reports liveness while remaining honest about readiness -- previously it
+    claimed "healthy" even when initialisation had failed outright, which meant
+    a broken deploy looked identical to a working one.
+    """
+    if chal_dilli is not None:
+        status, detail = "healthy", None
+    elif _init_error:
+        status, detail = "degraded", f"initialisation failed: {_init_error}"
+    else:
+        status, detail = "starting", "loading routing data"
+
     return HealthResponse(
-        status="healthy",
+        status=status,
         service="CHAL DILLI Enhanced",
         timestamp=datetime.now().isoformat(),
-        version="2.0.0"
+        version="2.0.0",
+        detail=detail
     )
 
 @app.get("/init-status")
 async def init_status():
     """Check initialization status"""
+    if chal_dilli is not None:
+        status = "ready"
+    elif _init_error:
+        status = "failed"
+    else:
+        status = "initializing"
     return {
         "initialized": chal_dilli is not None,
-        "status": "ready" if chal_dilli else "initializing",
+        "status": status,
+        # None unless initialisation actually failed. A client polling this
+        # while a container wakes up can tell "keep waiting" from "stop
+        # waiting, this is broken".
+        "error": _init_error,
         "timestamp": datetime.now().isoformat()
     }
 

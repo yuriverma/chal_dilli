@@ -1,10 +1,46 @@
+# Render blueprint. Point Render at this repo and it picks this up.
+#
+# Chosen over Hugging Face Spaces for one concrete reason: data/GTFS/stop_times.csv
+# is 76MB, over the 10MB per-file limit for non-LFS files on a Space's git
+# remote. Render deploys straight from GitHub with no such limit, so there is
+# nothing to migrate to LFS.
+#
+# The tradeoff is that a free instance idles down after inactivity and the next
+# request waits for it to boot. The frontend handles that explicitly: a failed
+# request polls /init-status and says "waking up" rather than "not reachable".
 services:
   - type: web
     name: chal-dilli-backend
     env: python
     plan: free
-    buildCommand: pip install -r backend/requirements.txt && playwright install chromium && playwright install-deps chromium || true
+
+    # Playwright is deliberately NOT installed here. It is only needed by the
+    # two Parse.bot event endpoints, which already return 503 when
+    # PARSEBOT_API_KEY is unset -- and without a key they cannot work anyway.
+    # Installing chromium costs several minutes and ~150MB on every deploy for
+    # no benefit. To enable events, add a key below and append:
+    #   && playwright install chromium && playwright install-deps chromium || true
+    buildCommand: pip install -r backend/requirements.txt
+
+    # Single worker on purpose -- conversation state lives in process memory.
+    # See the comment in the Dockerfile.
     startCommand: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
+
+    # Readiness, not liveness: the routing graphs take a few seconds to build.
+    # /health stays 200 throughout and reports "starting" until they are up.
+    healthCheckPath: /health
+
     envVars:
-      - key: PORT
+      # Set this to the deployed frontend origin once it exists. Until then the
+      # backend allows all origins without credentials, which is fine for a
+      # public read-only API but should be tightened.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Leave unset and POST /update-data 404s instead of exposing a scrape
+      # trigger to the internet.
+      - key: ADMIN_TOKEN
+        sync: false
+      # Leave unset and the two event endpoints return 503. Everything else
+      # works normally.
+      - key: PARSEBOT_API_KEY
         sync: false

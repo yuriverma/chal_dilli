@@ -6,6 +6,7 @@ import {
   CHAT_ENDPOINT,
   DEFAULT_NON_TECH_PAGE,
   DEFAULT_TECH_PAGE,
+  INIT_STATUS_ENDPOINT,
   PARSEBOT_NON_TECH_ENDPOINT,
   PARSEBOT_TECH_ENDPOINT,
 } from "../config";
@@ -138,6 +139,30 @@ const storeConversationId = (id) => {
   }
 };
 
+/**
+ * Work out why a chat request failed, so the message can say something true.
+ *
+ * Free hosting suspends an idle backend; the first request after that either
+ * times out or fails outright while the container boots. That is a wait, not a
+ * failure, and it reads very differently to someone using the app.
+ */
+const describeBackendTrouble = async () => {
+  try {
+    const res = await fetch(INIT_STATUS_ENDPOINT, { cache: "no-store" });
+    const status = await res.json();
+    if (status.status === "failed") {
+      return `⚠️ The backend started but could not load its data: ${status.error}`;
+    }
+    if (!status.initialized) {
+      return "⏳ Waking the backend up and loading Delhi's metro and bus maps — this takes a few seconds on the free tier. Send that again in a moment.";
+    }
+    // Reachable and ready, so the failure was with this one request.
+    return "⚠️ That request didn't go through. Try again?";
+  } catch {
+    return "⚠️ Can't reach the backend. It may be starting up — give it a minute and try again.";
+  }
+};
+
 const ChattingPage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -233,9 +258,13 @@ const ChattingPage = () => {
       ]);
     } catch (err) {
       console.error("Error:", err);
+      // A free-tier backend sleeps when idle and takes upwards of half a
+      // minute to wake. Reporting that as "not reachable" makes a working app
+      // look permanently broken, so find out which it is before saying so.
+      const diagnosis = await describeBackendTrouble();
       setMessages((prev) => [
         ...prev.slice(0, -1),
-        { user: input, bot: "⚠️ Backend not reachable" },
+        { user: input, bot: diagnosis },
       ]);
     } finally {
       setIsLoading(false);
