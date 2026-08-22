@@ -47,8 +47,26 @@ if ! git rev-parse --verify "$REF" >/dev/null 2>&1; then
     exit 1
 fi
 
-TREE=$(git rev-parse "${REF}^{tree}")
 SOURCE=$(git rev-parse --short "$REF")
+FULL_TREE=$(git rev-parse "${REF}^{tree}")
+
+# Paths the Space has no use for. The Space runs the Python backend only; the
+# frontend deploys to Netlify separately, exactly as .dockerignore already
+# assumes for the container image.
+#
+# Excluding it is also load-bearing, not just tidiness. A second Space hook
+# rejects binary files outright unless they are stored via Xet/LFS, and every
+# binary in this repo is a frontend asset -- the background video, its poster,
+# the images, the audio. Everything outside frontend/ is text.
+EXCLUDE=(frontend tests)
+
+# Build the filtered tree in a throwaway index so the real index, working tree
+# and branches are all left alone.
+TMP_INDEX=$(mktemp)
+trap 'rm -f "$TMP_INDEX"' EXIT
+GIT_INDEX_FILE="$TMP_INDEX" git read-tree "$FULL_TREE"
+GIT_INDEX_FILE="$TMP_INDEX" git rm -r --cached -q --ignore-unmatch "${EXCLUDE[@]}"
+TREE=$(GIT_INDEX_FILE="$TMP_INDEX" git write-tree)
 
 # Refuse to deploy a tree that would be rejected anyway, with a message that
 # says which file rather than leaving you to read the hook's output.
@@ -71,13 +89,17 @@ if [ -n "$OVERSIZE" ]; then
 fi
 
 echo "Deploying tree of $REF ($SOURCE) to remote '$REMOTE'..."
+echo "  excluding: ${EXCLUDE[*]}"
+echo "  files:     $(GIT_INDEX_FILE="$TMP_INDEX" git ls-files | wc -l | tr -d ' ')"
 
 COMMIT=$(
     git commit-tree "$TREE" -m "Deploy $SOURCE
 
-Single-commit snapshot of $REF. History is intentionally omitted: the Space
-rejects the large GTFS blobs that older commits still contain, and it needs
-only the current files to run. See scripts/deploy_space.sh."
+Single-commit snapshot of $REF, backend only. History is intentionally
+omitted: the Space rejects the large GTFS blobs that older commits still
+contain, and it needs only the current files to run. The frontend is excluded
+because it deploys to Netlify and its binary assets are rejected too. See
+scripts/deploy_space.sh."
 )
 
 # --force because each deploy is a fresh parentless commit, so it is never a

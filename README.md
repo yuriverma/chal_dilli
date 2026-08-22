@@ -91,12 +91,27 @@ Both are free, and unlike a free Render instance a Space does not idle down
 between visitors.
 
 **Backend.** Create a Space with SDK **Gradio** — not Docker, which is a paid
-feature — on the free CPU hardware, then push this repo to it:
+feature — on the free CPU hardware, then:
 
 ```bash
 git remote add space https://huggingface.co/spaces/<user>/<space-name>
-git push space main
+hf auth login --add-to-git-credential      # a token with write access
+scripts/deploy_space.sh                     # not `git push space main`
 ```
+
+A plain `git push` is rejected twice over, which is why the script exists:
+
+- The Space refuses any file over 10MB that is not in Git LFS, and it checks
+  **every blob in the pushed history**, not just the current tree. Nothing in
+  the tree is close to 10MB, but older commits still contain the GTFS files
+  that were deleted along the way.
+- It also refuses binary files outright. Every binary here is a frontend asset
+  — the background video, its poster, the images — and the Space does not need
+  the frontend at all.
+
+So `scripts/deploy_space.sh` pushes a single parentless commit containing the
+backend only. No history, no frontend, nothing for either hook to object to.
+Re-run it to redeploy.
 
 The frontmatter at the top of this README is the Space's config, and `app.py`
 is the entrypoint. A Gradio Space runs `app.py` and proxies port 7860; it does
