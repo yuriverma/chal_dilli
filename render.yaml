@@ -1,15 +1,20 @@
-# Render blueprint — the FALLBACK host, kept working but not the primary.
+# Render blueprint — the host for this backend.
 #
-# Hugging Face Spaces is the primary target (see the Dockerfile and the deploy
-# section of the README). A free Render instance idles down after inactivity,
-# so the first visitor after a quiet spell waits for a cold boot, and for a
-# chat app that is the whole first impression.
+# Hugging Face Spaces cannot host it on a free account. Creating a Gradio (or
+# Docker) Space on cpu-basic returns 402:
 #
-# This file briefly recommended Render over Spaces because
-# data/GTFS/stop_times.csv was 76MB, over the per-file limit for non-LFS files
-# on a Space's git remote. That file is gone — the derived graph in
-# bus_edges.csv replaced it — so Spaces now takes a plain git push and the
-# reason no longer applies.
+#   Static Spaces are free for everyone, but hosting Gradio and Docker Spaces
+#   on free cpu-basic requires a PRO subscription.
+#
+# Only Static Spaces are free, and a static host cannot run Python. Downgrading
+# an existing Space to cpu-basic is refused for the same reason, so there is no
+# way around it without PRO. app.py and the Gradio UI are kept because they are
+# useful locally and on any host that does allow it, but nothing here needs them.
+#
+# The cost of Render's free tier is that an instance idles down after
+# inactivity, so the first request after a quiet spell waits for a cold boot.
+# The frontend handles that explicitly rather than reporting an outage: a failed
+# request polls /init-status and says "waking up".
 services:
   - type: web
     name: chal-dilli-backend
@@ -33,6 +38,13 @@ services:
     healthCheckPath: /health
 
     envVars:
+      # Pinned, not left to the platform default. pandas 3.x requires Python
+      # >= 3.11, and an unpinned interpreter is exactly what broke the first
+      # three Hugging Face builds — the image there was 3.10 and pip could not
+      # see any matching pandas at all. .python-version pins it too; this is
+      # belt and braces because the two mechanisms differ per platform.
+      - key: PYTHON_VERSION
+        value: "3.12"
       # Set this to the deployed frontend origin once it exists. Until then the
       # backend allows all origins without credentials, which is fine for a
       # public read-only API but should be tightened.
