@@ -66,7 +66,7 @@ Backend:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 playwright install chromium          # only needed for the events endpoints
 uvicorn backend.api_server:app --reload --port 8000
 ```
@@ -131,9 +131,11 @@ the API route calls, with its own conversation id in session state, so
 follow-ups work there too. Useful for checking the backend without the
 frontend deployed.
 
-Every file in the repo is under 10MB, so this is a plain git push with no LFS
-setup. That is why `data/GTFS/bus_edges.csv` exists instead of the 76MB feed it
-is derived from.
+Note that the root `requirements.txt` has to be self-contained. Spaces
+bind-mounts *only* that file into the build, so a `-r backend/requirements.txt`
+include in it cannot resolve and fails the build. That is why there is one
+requirements file at the root and everything — the Dockerfile, `render.yaml`,
+`nixpacks.toml`, `railway.json` — installs it.
 
 Set `ALLOWED_ORIGINS` to the frontend origin in the Space's settings once the
 frontend is up. `ADMIN_TOKEN` and `PARSEBOT_API_KEY` are optional — see the

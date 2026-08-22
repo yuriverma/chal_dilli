@@ -22,7 +22,7 @@ services:
     # Installing chromium costs several minutes and ~150MB on every deploy for
     # no benefit. To enable events, add a key below and append:
     #   && playwright install chromium && playwright install-deps chromium || true
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: pip install -r requirements.txt
 
     # Single worker on purpose -- conversation state lives in process memory.
     # See the comment in the Dockerfile.
