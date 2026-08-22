@@ -1,0 +1,13 @@
+# Test-only dependencies. Kept out of requirements.txt so they never reach the
+# deploy image (see .dockerignore, which also excludes tests/).
+#
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#
+# The suite is plain stdlib unittest and passes without any of this:
+#
+#   python -m unittest discover -s tests
+#
+# pytest is here only because it is the command most people reach for first,
+# and `pytest tests` failing on a fresh clone reads as a broken test suite
+# rather than a missing runner.
+pytest==9.1.1

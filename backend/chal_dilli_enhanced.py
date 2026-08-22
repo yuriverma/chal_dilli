@@ -15,10 +15,21 @@ from hinglish_conversation import HinglishConversationManager
 from food_recommender import recommend_for_location, recommend_by_area, recommend_for_text_query
 from area_mapper import extract_area_from_query, get_area_coordinates
 from dtc_router import DTCRouter
+from conversation_state import (
+    ConversationStore,
+    resolve_open_origin,
+    rewrite_followup,
+)
 
 # Get absolute project root path
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _DATA_DIR = _BASE_DIR / "data"
+
+# Whole-word greeting match. `\b` matters: plain substring checks make "hi"
+# match "delhi"/"which"/"this" and swallow real queries.
+_GREETING_RE = re.compile(
+    r"\b(hi|hello|hey|namaste|hola|yo|sup|kaise ho|kya haal|how are you)\b"
+)
 
 class ChalDilliEnhanced:
     def __init__(self):
@@ -26,6 +37,9 @@ class ChalDilliEnhanced:
         self.enhanced_router = EnhancedMetroRouter()
         self.conv = HinglishConversationManager(max_rows=30000)
         self.metro_data = {"status": "All lines operational"}
+        # Remembers what each conversation has established, so elliptical
+        # follow-ups ("and from there to Saket?") can be resolved.
+        self.conversations = ConversationStore()
         self.event_data = []
         self.food_data = {}
         self.bus_data = {}
@@ -161,24 +175,24 @@ class ChalDilliEnhanced:
             # Default to Connaught Place coordinates if no location provided
             # In future, could use browser geolocation API
             default_lat, default_lon = 28.6315, 77.2167  # Connaught Place
-            recommendations = recommend_for_location(default_lat, default_lon, radius_km=5)
+            recommendations = recommend_for_location(default_lat, default_lon, radius_km=5, dish=food_type)
             area_name = "Connaught Place"  # For display purposes
         elif coords:
             # Use coordinates
             lat, lon = coords
-            recommendations = recommend_for_location(lat, lon, radius_km=5)
+            recommendations = recommend_for_location(lat, lon, radius_km=5, dish=food_type)
         elif area_name:
             # Try area-based recommendation
-            recommendations = recommend_by_area(area_name, city="Delhi")
+            recommendations = recommend_by_area(area_name, city="Delhi", dish=food_type)
             # If that fails, try to get coordinates
             if not recommendations.get('safe_pick') and not recommendations.get('local_favourite'):
                 coords = get_area_coordinates(area_name)
                 if coords:
                     lat, lon = coords
-                    recommendations = recommend_for_location(lat, lon, radius_km=5)
+                    recommendations = recommend_for_location(lat, lon, radius_km=5, dish=food_type)
         else:
             # Try text query matching
-            recommendations = recommend_for_text_query(query, city="Delhi")
+            recommendations = recommend_for_text_query(query, city="Delhi", dish=food_type)
         
         # Format response
         if recommendations and (recommendations.get('safe_pick') or recommendations.get('local_favourite')):
@@ -370,12 +384,20 @@ class ChalDilliEnhanced:
             r"fastest\s+metro\s+from\s+\w+",
             r"metro\s+route\s+between\s+\w+",
             r"route\s+between\s+\w+.*\s+metro",
+            # "route <src> to <dst>" without the word "from"
+            r"\broute\s+.+\s+to\s+.+",
+            # "between X and Y"
+            r"\bbetween\s+.+\s+and\s+.+",
         ]
-        
-        # Hinglish route patterns
+
+        # Hinglish route patterns.
+        # The old first pattern was `\w+ se \w+ (kaise|how|route)`, which only
+        # matched single-word destinations — "rajiv chowk se hauz khas kaise
+        # jaaye" failed because "khas" sat between "hauz" and "kaise".
         hinglish_metro_patterns = [
-            r"\w+\s+se\s+\w+\s+(kaise|how|route)",
-            r"kaise\s+(jaana|jao|jaiye|pahunch)",
+            r"\bse\b.+\b(kaise|kaise|kese|how|route|jaana|jana)\b",
+            r"\bse\b.+\btak\b",
+            r"kaise\s+(jaana|jana|jao|jaiye|jaaye|jaye|jaun|jaaun|jau|pahunch|pahunche)",
             r"fastest\s+(route|way|metro)",
         ]
         
@@ -493,8 +515,12 @@ class ChalDilliEnhanced:
         
         return None
     
-    def get_dtc_route_response(self, query: str) -> str:
-        """Get DTC bus route response"""
+    def get_dtc_route_response(self, query: str, trace: Optional[Dict] = None) -> str:
+        """Get DTC bus route response.
+
+        Fills `trace` with the canonical stop names when a route is found, so
+        the caller can remember them for follow-ups.
+        """
         if not self.dtc_router:
             return "Sorry bhai, DTC bus routing abhi available nahi hai. Metro route try karo!"
         
@@ -510,6 +536,13 @@ class ChalDilliEnhanced:
             if "message" in result:
                 return result["message"]
             
+            if trace is not None:
+                trace["mode"] = "bus"
+                if result.get("from"):
+                    trace["origin"] = result["from"]
+                if result.get("to"):
+                    trace["destination"] = result["to"]
+
             # Format response in Delhi-friendly Hinglish style
             response = f"Bhai, {result['from']} se {result['to']} tak ka best DTC bus route:\n\n"
             response += result["human_text"]
@@ -520,23 +553,33 @@ class ChalDilliEnhanced:
         except Exception as e:
             return f"Sorry bhai, route calculate karte waqt error aaya: {str(e)}"
     
-    def generate_response(self, query: str) -> str:
-        """Generate response based on query with real-time data"""
+    def generate_response(self, query: str, trace: Optional[Dict] = None) -> str:
+        """Generate response based on query with real-time data.
+
+        When `trace` is given it is filled with the canonical places this
+        turn resolved to, so the caller can remember them for follow-ups.
+        A fresh dict must be passed per call - responses are generated in
+        a thread pool and instance attributes would race.
+        """
         query_lower = query.lower()
         
         # Check for weather first (more specific)
         if any(word in query_lower for word in ["weather", "temperature", "climate"]):
             return self.get_weather_response()
         
-        # Check for greeting
-        if any(word in query_lower for word in ["hi", "hello", "hey", "namaste", "kaise ho", "how are you"]):
+        # Check for greeting.
+        # Must be a whole-word match: a substring test makes "hi" fire on
+        # "delhi", "which", "this", which shadowed almost every English query.
+        # Also require the greeting to be the whole message (or nearly), so
+        # "hi, dwarka se cp kaise jaun" still routes to the metro pipeline.
+        if _GREETING_RE.search(query_lower) and len(query_lower.split()) <= 4:
             return self.get_greeting_response()
         
         # Check for bus/DTC queries first (before metro to avoid conflicts)
         if self._is_bus_query(query):
             route_info = self._extract_bus_route_query(query)
             if route_info:
-                return self.get_dtc_route_response(query)
+                return self.get_dtc_route_response(query, trace=trace)
             # If bus keywords but no route, give general bus info
             if any(kw in query_lower for kw in ["bus", "dtc", "transport"]):
                 return self.get_bus_response()
@@ -547,7 +590,18 @@ class ChalDilliEnhanced:
             if parsed:
                 route_result = self.enhanced_router.get_route_response(query)
                 metro_response = route_result["response"]
-                
+
+                # Record where this turn actually landed. route_data carries
+                # canonical GTFS station names, which is what a follow-up needs
+                # -- "cp" is no use as an anchor, "Rajiv Chowk" is.
+                if trace is not None:
+                    trace["mode"] = "metro"
+                    resolved = route_result.get("route_data") or {}
+                    if resolved.get("from"):
+                        trace["origin"] = resolved["from"]
+                    if resolved.get("to"):
+                        trace["destination"] = resolved["to"]
+
                 # Add food recommendations for destination station
                 if route_result.get("has_route") and route_result.get("route_data"):
                     try:
@@ -593,6 +647,12 @@ class ChalDilliEnhanced:
 
         # Check for food queries
         if self._is_food_query(query):
+            if trace is not None:
+                area_name, _ = extract_area_from_query(query)
+                # "around_me" is a placeholder rather than somewhere the user
+                # can come back to, so it is not worth keeping as an anchor.
+                if area_name and area_name != "around_me":
+                    trace["area"] = area_name
             # get_food_response returns (text, recommendations_dict)
             # For generate_response, we only need the text
             text_response, _ = self.get_food_response(query)
@@ -623,25 +683,74 @@ class ChalDilliEnhanced:
         # Default
         return self.get_unknown_response()
     
-    def get_delhi_response(self, query: str) -> Dict:
-        """Get Delhi response with real-time data"""
-        response = self.generate_response(query)
-        
+    def get_delhi_response(self, query: str, conversation_id: Optional[str] = None) -> Dict:
+        """Get Delhi response with real-time data.
+
+        Passing `conversation_id` opts this turn into follow-up resolution: an
+        elliptical question is rewritten against what the conversation has
+        already established before the intent router ever sees it. Omitting it
+        gives the previous stateless behaviour exactly.
+        """
+        original_query = query
+        state = self.conversations.get(conversation_id)
+
+        # "and from there to saket" -> "metro from Rajiv Chowk to saket"
+        # "and by bus?"             -> "bus from Dwarka to Rajiv Chowk"
+        # "to saket"                -> "metro from Rajiv Chowk to saket"
+        rewrite = rewrite_followup(query, state)
+
+        # Backstop for destination-only phrasings the patterns above miss.
+        # Gated on the metro intent because the route extractor happily matches
+        # "X to Y" inside sentences that are not journeys at all.
+        if not rewrite and self._is_metro_query(query):
+            parsed = self.enhanced_router.extract_route_query(query)
+            if parsed:
+                rewrite = resolve_open_origin(query, parsed, state)
+
+        query = rewrite.query
+        trace: Dict = {}
+        response = self.generate_response(query, trace=trace)
+
         result = {
             "response": response,
-            "query": query,
+            "query": original_query,
             "timestamp": datetime.now().isoformat(),
             "metro_status": self.metro_data.get("status"),
-            "language": "hinglish" if re.search(r'[\u0900-\u097F]', query) else "english",
-            "data_freshness": self.scraper.last_update.isoformat() if self.scraper.last_update else None
+            "language": "hinglish" if re.search(r'[\u0900-\u097F]', original_query) else "english",
+            "data_freshness": self.scraper.last_update.isoformat() if self.scraper.last_update else None,
+            "conversation_id": conversation_id,
         }
-        
-        # If it's a food query, include structured recommendations
+
+        # Report the substitution instead of making it silently. If we anchored
+        # to the wrong place, the user can see which assumption to correct.
+        if rewrite.note:
+            result["resolved_context"] = rewrite.note
+            result["resolved_query"] = query
+
+        # If it's a food query, include structured recommendations. Uses the
+        # rewritten query so "food near there" resolves to a real area.
         if self._is_food_query(query):
             _, recommendations = self.get_food_response(query)
             if recommendations:
                 result["recommendations"] = recommendations
-        
+
+        # Remember what this turn established, for the next follow-up. A mode
+        # switch is excluded: it re-asks a known journey rather than
+        # establishing a new place, and the bus network's stop names do not
+        # correspond to metro station names, so letting a fuzzy bus match
+        # overwrite the anchor would corrupt every follow-up after it.
+        if conversation_id:
+            if not rewrite.preserve_anchor:
+                if trace.get("origin"):
+                    state.last_origin = trace["origin"]
+                if trace.get("destination"):
+                    state.last_destination = trace["destination"]
+                if trace.get("area"):
+                    state.last_area = trace["area"]
+            if trace.get("mode"):
+                state.last_mode = trace["mode"]
+            self.conversations.save(conversation_id, state)
+
         return result
     
     def get_data_summary(self) -> Dict:

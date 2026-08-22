@@ -106,16 +106,38 @@ class EnhancedMetroRouter:
         else:
             return "english"
     
+    # Filler words that show up glued to the source when a user writes
+    # "route dwarka to saket" or "fastest metro dwarka se cp".
+    _LEADING_FILLER = (
+        "please", "bhai", "yaar", "tell me", "the", "best", "fastest",
+        "cheapest", "shortest", "metro route", "bus route", "route", "way",
+        "path", "delhi metro", "metro", "train", "mujhe", "muje",
+        # interrogatives / verbs that regex capture groups drag along
+        "which", "what", "kaun si", "kaun", "kis", "how", "kaise",
+        "line", "goes", "go", "leads", "connects", "reach", "get to", "jaana",
+    )
+
     def normalize_station_name(self, name: str) -> str:
         """Map common aliases and clean station names for better matching"""
         n = name.strip().lower()
         # Remove trailing punctuation and helper words
-        n = re.sub(r'[?!.]+$', '', n).strip()
-        for word in [" metro station", " station", " hai", " hoga", " please"]:
+        n = re.sub(r'[?!.,]+$', '', n).strip()
+        for word in [" metro station", " station", " hai", " hoga", " please", " ka", " ki", " ke"]:
             if n.endswith(word):
                 n = n[: -len(word)].strip()
         # Remove the word 'station' if user added it
         n = n.replace(" metro station", "").replace(" station", "").strip()
+        # Strip leading filler so "route dwarka" resolves to "dwarka".
+        # Loop because queries stack them: "tell me the fastest metro route ...".
+        changed = True
+        while changed:
+            changed = False
+            for filler in self._LEADING_FILLER:
+                if n == filler:
+                    return ""
+                if n.startswith(filler + " "):
+                    n = n[len(filler) + 1:].strip()
+                    changed = True
         if n in self.station_aliases:
             return self.station_aliases[n]
         return n
@@ -127,13 +149,23 @@ class EnhancedMetroRouter:
         # Common route patterns (ordered, more specific first)
         route_patterns = [
             r'(?:from|se)\s+([^?]+?)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
+            # "X se Y tak" — source precedes "se", destination ends at "tak"
+            r'([^?]+?)\s+se\s+([^?]+?)\s+tak\b',
+            # "between X and Y"
+            r'\bbetween\s+([^?]+?)\s+and\s+([^?]+)',
+            r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:kaise|kese|how)\s+(?:jaana|jana|go|reach|pahunch|pahunche|jau|jao|jaiye|jaaye|jaye|jaun|jaaun)',
             r'([^?]+?)\s+(?:se|from)\s+([^?]+?)\s+(?:ka|kya)\s+(?:route|line|metro)',
             r'(?:how to|kaise|kahan se|kahan tak|route|way|path)\s+(?:go|jaana|jao|jaiye|reach|pahunch|jaaye|jaun|jaaun)\s+(?:to|tak|mein)\s+([^?]+)',
-            r'(?:which|kaun|kis)\s+(?:line|metro|route)\s+(?:goes|leads|connects)\s+(?:to|tak)\s+([^?]+)',
-            r'([^to]+?)\s+(?:to|tak)\s+([^?]+)',
+            # "which line goes to X" and the longer "which metro line goes to X"
+            r'(?:which|kaun|kaun\s+si|kis)\s+(?:metro\s+)?(?:line|metro|route)\s+(?:goes|leads|connects|jaati|jati)?\s*(?:to|tak)\s+([^?]+)',
+            # "how to reach/get to X", "kaise pahunche X"
+            r'(?:how\s+(?:do\s+i\s+|can\s+i\s+)?(?:to\s+)?(?:reach|get\s+to|go\s+to))\s+([^?]+)',
+            # Generic "X to Y". The original was `([^to]+?)` — a negated
+            # character class banning the letters 't' and 'o', not the word
+            # "to" — so it silently failed on most real queries.
+            r'([^?]+?)\s+(?:to|tak)\s+([^?]+)',
             r'(?:how|kaise)\s+(?:to|tak)\s+([^?]+)',
-            r'([^?]+)\s+(?:kaise|how)\s+(?:jaana|go|reach|pahunch|jau|jaiye|jaaye|jaun|jaaun)',
+            r'([^?]+)\s+(?:kaise|kese|how)\s+(?:jaana|jana|go|reach|pahunch|pahunche|jau|jao|jaiye|jaaye|jaye|jaun|jaaun)',
             r'([^?]+)\s+(?:ke liye|for)\s+(?:kaun|which)\s+(?:line|route)',
             # Last resort: plain "X se Y" without verb
             r'\b([^?]+?)\s+(?:se|from)\s+([^?]+?)\b'
@@ -145,13 +177,20 @@ class EnhancedMetroRouter:
                 if isinstance(matches[0], tuple) and len(matches[0]) == 2:  # from X to Y or X se Y
                     src_raw = matches[0][0]
                     dst_raw = matches[0][1]
-                    src = self.normalize_station_name(src_raw)
-                    dst = self.normalize_station_name(dst_raw)
-                    return {"from": src.strip(), "to": dst.strip()}
+                    src = self.normalize_station_name(src_raw).strip()
+                    dst = self.normalize_station_name(dst_raw).strip()
+                    # A pattern can match but leave nothing usable once filler
+                    # words are stripped — fall through to the next pattern
+                    # instead of returning an unresolvable empty station.
+                    if not src or not dst:
+                        continue
+                    return {"from": src, "to": dst}
                 else:  # just destination
-                    dest = self.normalize_station_name(matches[0])
-                    return {"from": "current location", "to": dest.strip()}
-        
+                    dest = self.normalize_station_name(matches[0]).strip()
+                    if not dest:
+                        continue
+                    return {"from": "current location", "to": dest}
+
         return None
     
     def get_route_response(self, query: str, language: str = "auto") -> Dict:
@@ -259,7 +298,24 @@ class EnhancedMetroRouter:
     def _get_fallback_route_response(self, route_info: Dict, language: str) -> Dict:
         """Get fallback route response when GTFS data is not available"""
         dest = route_info["to"]
-        
+
+        # Destination-only query ("which line goes to saket"). We can't route
+        # without an origin, so ask for one instead of the old dead-end
+        # "coming soon" message.
+        if route_info.get("from") == "current location":
+            prompt = {
+                "hindi": f"{dest.title()} tak ka route bata sakta hoon — bas batao kahan se chal rahe ho? Jaise: \"rajiv chowk se {dest} kaise jaana hai\".",
+                "hinglish": f"Bhai, {dest.title()} tak ka pura route bata dunga — bas ye batao ki chal kahan se rahe ho? Jaise: \"rajiv chowk se {dest}\".",
+                "english": f"I can route you to {dest.title()} — which station are you starting from? For example: \"from Rajiv Chowk to {dest}\".",
+            }[language if language in ("hindi", "hinglish", "english") else "hinglish"]
+            return {
+                "response": prompt,
+                "route_data": {"to": dest},
+                "language": language,
+                "has_route": False,
+            }
+
+
         # Use our existing destination mapping
         if dest in self.destinations:
             dest_info = self.destinations[dest]

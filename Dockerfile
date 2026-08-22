@@ -36,12 +36,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Playwright browsers (system deps already installed above)
 RUN playwright install chromium
 
-# Copy application code
+# Copy application code (see .dockerignore — the 67MB of unused GTFS fare
+# tables and the frontend are excluded)
 COPY . .
 
-# Expose port (Railway sets PORT env var)
-EXPOSE 8080
+# Default suits Hugging Face Spaces; Railway/Render/Fly inject their own PORT.
+ENV PORT=7860
+EXPOSE 7860
 
-# Start command - use shell form to expand PORT env var
-CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Single worker on purpose, for two reasons. Each worker builds its own
+# in-memory GTFS graph, so workers do not share that cost. More importantly,
+# conversation state (backend/conversation_state.py) lives in process memory:
+# a second worker would serve half the follow-ups from an empty store and
+# "and from there to Saket?" would fail at random. Measured footprint is
+# ~45MB RSS, not the ~370MB an earlier revision of this comment claimed.
+CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]
 

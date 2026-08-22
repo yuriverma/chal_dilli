@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import bg2 from "../assets/bg2.MP4";
+import { AUTH_API_URL, AUTH_ENABLED } from "../config";
 
 const ProfilePage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -43,7 +44,7 @@ const ProfilePage = () => {
           return;
         }
 
-        const res = await fetch(`https://cd-back-hnlv.onrender.com/api/users/${userId}`);
+        const res = await fetch(`${AUTH_API_URL}/api/users/${userId}`);
         if (!res.ok) {
           throw new Error('Failed to fetch user details');
         }
@@ -87,7 +88,7 @@ const ProfilePage = () => {
         return;
       }
 
-      const res = await fetch(`https://cd-back-hnlv.onrender.com/api/users/${userId}`, {
+      const res = await fetch(`${AUTH_API_URL}/api/users/${userId}`, {
         method: 'DELETE',
       });
 

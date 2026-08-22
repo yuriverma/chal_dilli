@@ -135,3 +135,6 @@ data/*.pdf
 # Build outputs
 dist/
 build/
+
+# Claude Code worktrees (git worktrees created inside the repo)
+.claude/worktrees/

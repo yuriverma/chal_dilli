@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import bg2 from "../assets/bg2.MP4";
+import { AUTH_API_URL, AUTH_ENABLED } from "../config";
 
 const LoginPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,7 +23,7 @@ const LoginPage = () => {
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
 
   // API base URL
-  const API_BASE_URL = 'https://cd-back-hnlv.onrender.com/api';
+  const API_BASE_URL = `${AUTH_API_URL}/api`;
 
   // Typing animation for "Chal Dilli"
  useEffect(() => {

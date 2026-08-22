@@ -48,7 +48,8 @@ class DelhiMetroScraper:
         try:
             logger.info(f"Scraping Delhi Metro website: {url}")
             
-            response = self.session.get(url, timeout=10)
+            # (connect, read) timeouts — a dead host must not stall startup.
+            response = self.session.get(url, timeout=(4, 8))
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -101,19 +102,29 @@ class DelhiMetroScraper:
             return {"url": url, "error": str(e)}
     
     def scrape_all_metro_sites(self) -> Dict:
-        """Scrape all Delhi Metro websites"""
-        logger.info("Scraping all Delhi Metro websites...")
-        
+        """Scrape Delhi Metro websites.
+
+        Stops at the first site that answers. The old version always hit all
+        three URLs with a 10s timeout plus a 2s sleep between them, so a single
+        unreachable host (dmrc.org currently times out) added ~36s to startup
+        for a status banner that says "Operational" either way.
+        """
+        logger.info("Scraping Delhi Metro websites...")
+
         results = {}
-        for url in self.metro_urls:
+        for i, url in enumerate(self.metro_urls):
             try:
                 result = self.scrape_metro_website(url)
                 results[url] = result
-                time.sleep(2)  # Be respectful to servers
+                if "error" not in result:
+                    # Got a usable answer; no need to hammer the mirrors.
+                    break
             except Exception as e:
                 logger.error(f"Failed to scrape {url}: {e}")
                 results[url] = {"error": str(e)}
-        
+            if i < len(self.metro_urls) - 1:
+                time.sleep(1)  # Be respectful to servers
+
         return results
     
     def get_metro_status(self) -> Dict:

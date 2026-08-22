@@ -4,6 +4,7 @@ Provides location-based restaurant recommendations using haversine distance.
 """
 
 import pandas as pd
+import numpy as np
 import math
 from pathlib import Path
 import json
@@ -57,8 +58,23 @@ def _load_and_preprocess_data():
     
     # Ensure rating_count is int
     df['rating_count'] = df['rating_count'].astype(int)
-    
-    return df
+
+    # Precompute a lowercase searchable blob per row so dish/cuisine filtering
+    # is a cheap vectorized string test instead of a per-query row scan.
+    # NOTE: the CSV header spells the column "cusine" (sic) — that typo is why
+    # cuisine was never used for matching.
+    cuisine_col = 'cusine' if 'cusine' in df.columns else 'cuisine'
+    df['_haystack'] = (
+        df['name'].fillna('').astype(str) + ' | ' +
+        df.get(cuisine_col, pd.Series('', index=df.index)).fillna('').astype(str) + ' | ' +
+        df['famous_food'].fillna('').astype(str)
+    ).str.lower()
+
+    # Cache coordinates as radians once for vectorized haversine.
+    df['_lat_rad'] = np.radians(df['latitude'].to_numpy())
+    df['_lon_rad'] = np.radians(df['longitude'].to_numpy())
+
+    return df.reset_index(drop=True)
 
 # Load data on import
 _df = _load_and_preprocess_data()
@@ -231,69 +247,121 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     
     return EARTH_RADIUS_KM * c
 
-def find_nearest(lat: float, lon: float, radius_km: float = 5, max_results: int = 50) -> List[Dict]:
+DISH_SYNONYMS = {
+    "momos": ["momo", "dumpling", "dimsum", "dim sum", "tibetan"],
+    "breakfast": ["breakfast", "chole bhature", "poha", "sandwich", "cafe"],
+    "paratha": ["paratha", "parantha", "paranthe"],
+    "chaat": ["chaat", "golgappa", "pani puri", "tikki", "papdi"],
+    "biryani": ["biryani", "biriyani", "mughlai", "hyderabadi"],
+    "pizza": ["pizza", "italian"],
+    "burger": ["burger", "fast food"],
+    "chinese": ["chinese", "noodles", "hakka", "manchurian"],
+    "north indian": ["north indian", "punjabi", "mughlai"],
+    "south indian": ["south indian", "dosa", "idli", "vada", "uttapam"],
+}
+
+
+def _dish_mask(dish: Optional[str]) -> Optional[np.ndarray]:
+    """Boolean mask over _df for rows matching a dish/cuisine, or None."""
+    if not dish:
+        return None
+    terms = DISH_SYNONYMS.get(dish.lower(), [dish.lower()])
+    hay = _df['_haystack']
+    mask = np.zeros(len(_df), dtype=bool)
+    for term in terms:
+        mask |= hay.str.contains(re.escape(term), regex=True, na=False).to_numpy()
+    return mask
+
+
+def _row_to_dict(row, distance: float) -> Dict:
+    """Convert a dataframe row to the recommendation dict shape."""
+    phone = row['telephone']
+    return {
+        'name': row['name'],
+        'area': row['area'],
+        'city': row['city'],
+        'rating': float(row['rating']) if pd.notna(row['rating']) else 0.0,
+        'rating_count': int(row['rating_count']) if pd.notna(row['rating_count']) else 0,
+        'cost_for_two': float(row['cost_for_two']) if pd.notna(row['cost_for_two']) else None,
+        'telephone': str(phone) if pd.notna(phone) and str(phone) != '#ERROR!' else None,
+        'address': str(row['address']) if pd.notna(row['address']) else None,
+        'famous_food': str(row['famous_food']) if pd.notna(row['famous_food']) else None,
+        'latitude': float(row['latitude']),
+        'longitude': float(row['longitude']),
+        'distance_km': float(distance),
+        'source': 'csv',
+        'zomato_url': str(row['Zomato link']) if pd.notna(row.get('Zomato link')) and str(row.get('Zomato link', '')).strip() else None
+    }
+
+
+def find_nearest(lat: float, lon: float, radius_km: float = 5, max_results: int = 50,
+                 dish: Optional[str] = None) -> List[Dict]:
     """
     Find restaurants within radius of given coordinates.
-    
+
     Args:
         lat: Latitude in degrees
         lon: Longitude in degrees
         radius_km: Search radius in kilometers (clamped to 0.1-50)
         max_results: Maximum number of results to return
-    
+        dish: Optional dish/cuisine to bias towards (e.g. "momos"). If nothing
+              within the radius serves it, the filter is dropped rather than
+              returning nothing.
+
     Returns:
         List of dictionaries with restaurant data and computed distance
     """
     # Clamp radius
     radius_km = max(MIN_RADIUS_KM, min(MAX_RADIUS_KM, radius_km))
-    
+
+    # Vectorized haversine over the whole frame — the previous implementation
+    # ran df.iterrows() across ~7k rows on every single query.
+    lat_r, lon_r = math.radians(lat), math.radians(lon)
+    dlat = _df['_lat_rad'].to_numpy() - lat_r
+    dlon = _df['_lon_rad'].to_numpy() - lon_r
+    a = np.sin(dlat / 2.0) ** 2 + math.cos(lat_r) * np.cos(_df['_lat_rad'].to_numpy()) * np.sin(dlon / 2.0) ** 2
+    distances = EARTH_RADIUS_KM * 2.0 * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+
+    within = distances <= radius_km
+
+    # Prefer rows that actually serve the requested dish; fall back to all
+    # nearby rows if that yields nothing.
+    dmask = _dish_mask(dish)
+    selected = within & dmask if dmask is not None else within
+    if not selected.any():
+        selected = within
+
+    idx = np.flatnonzero(selected)
+    if idx.size == 0:
+        return []
+    idx = idx[np.argsort(distances[idx], kind="stable")][:max_results]
+
     results = []
-    
-    for _, row in _df.iterrows():
+    for i in idx:
         try:
-            distance = haversine_distance(lat, lon, row['latitude'], row['longitude'])
-            
-            if distance <= radius_km:
-                result = {
-                    'name': row['name'],
-                    'area': row['area'],
-                    'city': row['city'],
-                    'rating': float(row['rating']) if pd.notna(row['rating']) else 0.0,
-                    'rating_count': int(row['rating_count']) if pd.notna(row['rating_count']) else 0,
-                    'cost_for_two': float(row['cost_for_two']) if pd.notna(row['cost_for_two']) else None,
-                    'telephone': str(row['telephone']) if pd.notna(row['telephone']) and str(row['telephone']) != '#ERROR!' else None,
-                    'address': str(row['address']) if pd.notna(row['address']) else None,
-                    'famous_food': str(row['famous_food']) if pd.notna(row['famous_food']) else None,
-                    'latitude': float(row['latitude']),
-                    'longitude': float(row['longitude']),
-                    'distance_km': distance,
-                    'source': 'csv',
-                    'zomato_url': str(row['Zomato link']) if pd.notna(row.get('Zomato link')) and str(row.get('Zomato link', '')).strip() else None
-                }
-                results.append(result)
+            results.append(_row_to_dict(_df.iloc[i], distances[i]))
         except (ValueError, TypeError):
             continue
-    
-    # Sort by distance
-    results.sort(key=lambda x: x['distance_km'])
-    
-    return results[:max_results]
 
-def recommend_for_location(lat: float, lon: float, radius_km: float = 5) -> Dict:
+    return results
+
+def recommend_for_location(lat: float, lon: float, radius_km: float = 5,
+                           dish: Optional[str] = None) -> Dict:
     """
     Get two recommendations for a location: safe_pick and local_favourite.
     STRICT LOGIC: CSV is primary, OSM only if CSV has 0 results.
-    
+
     Args:
         lat: Latitude in degrees
         lon: Longitude in degrees
         radius_km: Search radius in kilometers
-    
+        dish: Optional dish/cuisine to prefer (e.g. "momos")
+
     Returns:
         Dictionary with 'safe_pick' and 'local_favourite' recommendations
     """
     # Step 1: Filter CSV rows using haversine distance <= radius_km
-    csv_candidates = find_nearest(lat, lon, radius_km, max_results=100)
+    csv_candidates = find_nearest(lat, lon, radius_km, max_results=100, dish=dish)
     
     # Mark all CSV candidates with source='csv'
     for candidate in csv_candidates:
@@ -414,7 +482,7 @@ def recommend_for_location(lat: float, lon: float, radius_km: float = 5) -> Dict
         'local_favourite': format_recommendation(local_favourite)
     }
 
-def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
+def recommend_for_text_query(query: str, city: str = "Delhi", dish: Optional[str] = None) -> Dict:
     """
     Attempt to parse area from natural language query and recommend by area.
     Improved area detection supports queries like:
@@ -438,7 +506,7 @@ def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
         _debug_log(f"Using area '{canonical_area}' (match type: {match_type})")
         
         # Get recommendations using the canonical area name
-        result = recommend_by_area(canonical_area, city)
+        result = recommend_by_area(canonical_area, city, dish=dish)
         
         # If we got results, return them
         if result.get('safe_pick') or result.get('local_favourite'):
@@ -451,26 +519,34 @@ def recommend_for_text_query(query: str, city: str = "Delhi") -> Dict:
         'local_favourite': None
     }
 
-def recommend_by_area(area: str, city: str = "Delhi") -> Dict:
+def recommend_by_area(area: str, city: str = "Delhi", dish: Optional[str] = None) -> Dict:
     """
     Get recommendations for a specific area.
-    
+
     Args:
         area: Area name (normalized to lowercase)
         city: City name (default: "Delhi")
-    
+        dish: Optional dish/cuisine to prefer (e.g. "momos")
+
     Returns:
         Dictionary with 'safe_pick' and 'local_favourite' recommendations
     """
     area_lower = area.lower().strip()
-    
+
     # Filter by city and area
     # Handle city matching - check if city contains "Delhi" or matches exactly
     city_filter = _df['city'].str.contains(city, case=False, na=False)
     area_filter = _df['area'] == area_lower
-    
+
     candidates_df = _df[city_filter & area_filter]
-    
+
+    # Narrow to the requested dish when at least one match exists in this area.
+    dmask = _dish_mask(dish)
+    if dmask is not None and len(candidates_df):
+        dish_df = candidates_df[dmask[candidates_df.index]]
+        if len(dish_df):
+            candidates_df = dish_df
+
     if len(candidates_df) == 0:
         return {
             'safe_pick': None,

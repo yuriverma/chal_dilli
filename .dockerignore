@@ -1,0 +1,30 @@
+# Keep the runtime image small. The repo is ~206MB; most of it is never read
+# at request time.
+
+.git
+.gitignore
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.DS_Store
+**/.DS_Store
+
+# Frontend is deployed separately (Netlify/Cloudflare) — the Python image
+# does not need it.
+frontend/
+
+# Docs, tests, stray media
+tests/
+*.md
+!README.md
+AUDIO-*.m4a
+
+# The GTFS fare tables that used to be excluded here (fare_attributes.csv,
+# fare_rules.csv - 65MB, read by no code path) are now deleted from the repo
+# outright. dtc_router.py only opens stops.csv, routes.csv, trips.csv and
+# stop_times.csv.
+
+# Source PDF for the one-off gates parser; dmrc_gates.csv is the shipped output.
+data/*.pdf
