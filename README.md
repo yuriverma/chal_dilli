@@ -123,9 +123,28 @@ prefer `pytest tests`, but nothing requires it.
 
 ## Data
 
-`data/` holds GTFS feeds for the metro and bus networks, the gate table, and
-the restaurant set. They are point-in-time snapshots: only metro *status* is
+`data/` holds the metro GTFS feed, the derived bus graph, the gate table and
+the restaurant set. These are point-in-time snapshots: only metro *status* is
 scraped live, so fares and station lists drift as the network changes.
-`backend/dmrc_gates_parser.py` regenerates the gate CSV from the DMRC PDF and
-needs `pdfplumber`, which is commented out of the requirements because nothing
-imports it at request time.
+
+Two files are generated rather than downloaded, and both have a script:
+
+- **`data/GTFS/bus_edges.csv`** — the DTC bus graph, 6,187 stop-to-stop edges.
+  The raw feed expresses this as 2.25 million `stop_times` rows (one per stop
+  per departure) of which the router reads three columns and discards the
+  timetable entirely. Committing the derived graph instead of the 76MB feed
+  cuts bus-router load from 4.5s to 0.03s and its peak memory from ~296MB to
+  ~22MB. Rebuild it after a feed refresh with:
+
+  ```bash
+  python scripts/build_bus_graph.py data/GTFS
+  ```
+
+  That needs the full feed, which is deliberately not committed — download a
+  current one from the DTC/OTD open data portal first. If `stop_times.csv` is
+  present the router will fall back to deriving the graph itself, so a fresh
+  feed works without running the script.
+
+- **`data/dmrc_gates.csv`** — station gate and lift guidance, from
+  `backend/dmrc_gates_parser.py` against the DMRC PDF. Needs `pdfplumber`,
+  commented out of the requirements because nothing imports it at request time.

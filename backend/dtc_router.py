@@ -94,35 +94,70 @@ class DTCRouter:
                     "type": r.get("route_type") or "",
                 }
 
-        # Trips -> route_id mapping
-        self.trip_route = {}
-        with open(trips_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                self.trip_route[r["trip_id"]] = r["route_id"]
+        # The stop-to-stop graph. Prefer the precomputed edge list: the raw feed
+        # expresses it as 2.25M stop_times rows (one per stop per departure)
+        # that collapse to 6,187 unique edges, so rebuilding it on every boot
+        # parses 76MB to derive 140KB. scripts/build_bus_graph.py regenerates
+        # the edge list from a full feed; only the edge list is committed.
+        edges_path = os.path.join(self.gtfs_dir, "bus_edges.csv")
+        if os.path.exists(edges_path):
+            self._load_edges(edges_path)
+        else:
+            self._build_edges_from_stop_times(trips_path, stop_times_path)
 
-        # Trip stop sequences
-        self.trip_stops = defaultdict(list)
-        with open(stop_times_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                tid = r["trip_id"]
-                sid = r["stop_id"]
+        # Build adjacency list from the edges, however they were obtained.
+        self.adj = defaultdict(list)
+        for (u, v), w in self.edge_weight.items():
+            self.adj[u].append((v, w))
+            self.adj[v].append((u, w))
+
+    def _load_edges(self, edges_path: str):
+        """Load the precomputed stop-to-stop graph."""
+        self.edge_weight = {}
+        self.edge_route_main = {}
+        with open(edges_path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                u = r["from_stop_id"]
+                v = r["to_stop_id"]
+                # A stop dropped from stops.csv since the graph was built would
+                # otherwise become an edge to nowhere.
+                if u not in self.stops or v not in self.stops:
+                    continue
                 try:
-                    seq = int(r["stop_sequence"])
-                    self.trip_stops[tid].append((seq, sid))
+                    self.edge_weight[(u, v)] = float(r["distance_km"])
                 except (ValueError, KeyError):
                     continue
-        
-        # Sort trip stops by sequence
-        for tid in list(self.trip_stops.keys()):
-            self.trip_stops[tid].sort()
+                if r.get("route_id"):
+                    self.edge_route_main[(u, v)] = r["route_id"]
 
-        # Build edges (connections between stops)
+    def _build_edges_from_stop_times(self, trips_path: str, stop_times_path: str):
+        """Derive the graph from a raw GTFS feed.
+
+        Fallback for when bus_edges.csv is absent — kept so a freshly
+        downloaded feed works without running the build script first. Must stay
+        equivalent to scripts/build_bus_graph.py.
+        """
+        trip_route = {}
+        with open(trips_path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                trip_route[r["trip_id"]] = r["route_id"]
+
+        trip_stops = defaultdict(list)
+        with open(stop_times_path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                try:
+                    trip_stops[r["trip_id"]].append(
+                        (int(r["stop_sequence"]), r["stop_id"])
+                    )
+                except (ValueError, KeyError):
+                    continue
+        for tid in list(trip_stops.keys()):
+            trip_stops[tid].sort()
+
         self.edge_weight = {}
-        self.edge_route_counter = defaultdict(Counter)
-        for trip_id, seqs in self.trip_stops.items():
-            r_id = self.trip_route.get(trip_id)
+        edge_route_counter = defaultdict(Counter)
+        for trip_id, seqs in trip_stops.items():
+            r_id = trip_route.get(trip_id)
             if not r_id:
                 continue
             for i in range(len(seqs) - 1):
@@ -137,17 +172,12 @@ class DTCRouter:
                 )
                 if (u, v) not in self.edge_weight or d < self.edge_weight[(u, v)]:
                     self.edge_weight[(u, v)] = d
-                self.edge_route_counter[(u, v)][r_id] += 1
+                edge_route_counter[(u, v)][r_id] += 1
 
-        # Build adjacency list and main route per edge
-        self.adj = defaultdict(list)
         self.edge_route_main = {}
-        for (u, v), w in self.edge_weight.items():
-            self.adj[u].append((v, w))
-            self.adj[v].append((u, w))
-            if self.edge_route_counter[(u, v)]:
-                rid = self.edge_route_counter[(u, v)].most_common(1)[0][0]
-                self.edge_route_main[(u, v)] = rid
+        for uv, counter in edge_route_counter.items():
+            if counter:
+                self.edge_route_main[uv] = counter.most_common(1)[0][0]
 
     def route_display_name(self, route_id: str) -> str:
         """Get display name for a route"""
