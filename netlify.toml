@@ -3,6 +3,26 @@
   command = "npm run build"
   publish = "dist"
 
+# The backend URL lives here rather than only in Netlify's dashboard.
+#
+# Vite inlines VITE_* variables into the JS at build time, so if the build
+# cannot see this one, the bundle silently ships config.js's local-dev fallback
+# — http://127.0.0.1:8000 — and every visitor's browser tries to call their own
+# machine. The failure looks like the backend being down, which sends you
+# debugging the wrong half: the deployed site reports "can't reach the backend"
+# while the backend is up and answering fine.
+#
+# It went wrong exactly that way once, so the value is committed. This is a
+# public API URL, not a secret. A variable set in the dashboard still wins over
+# this, and secrets should go there instead — but the URL the app cannot work
+# without is not a good thing to leave to a settings page.
+[build.environment]
+  VITE_BRAIN_API_URL = "https://chal-dilli-backend-c1i9.onrender.com"
+  # Empty on purpose. The auth service the login pages call is not in this
+  # repository and no longer runs; leaving this unset makes the app open
+  # straight into the chat instead of gating on a login that cannot succeed.
+  VITE_AUTH_API_URL = ""
+
 # React Router / Vite SPA redirect
 [[redirects]]
   from = "/*"
