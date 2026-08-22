@@ -1,4 +1,4 @@
-# Test-only dependencies. Kept out of requirements.txt so they never reach the
+# Test-only dependencies. Kept out of the root requirements.txt so they never reach the
 # deploy image (see .dockerignore, which also excludes tests/).
 #
 #   pip install -r backend/requirements.txt -r backend/requirements-dev.txt

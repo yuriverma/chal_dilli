@@ -1,8 +1,48 @@
-# Hugging Face Spaces installs from the repo root, so this points at the real
-# list rather than duplicating it (duplicates drift).
+# The one runtime dependency list. It lives at the repo root because Hugging
+# Face Spaces installs from the root, and it bind-mounts *only* this file into
+# the build — so a `-r backend/requirements.txt` include here cannot resolve
+# (it looks for /tmp/backend/requirements.txt and fails the build). Keeping a
+# second copy under backend/ instead would just drift, so there is one file and
+# everything points at it: the Dockerfile, render.yaml, nixpacks.toml and
+# railway.json all install this.
 #
-# gradio is deliberately not pinned here: the Space image already provides the
-# version named by `sdk_version` in README.md's frontmatter, and pinning a
-# second copy in this file fights it. app.py imports gradio lazily so the
-# FastAPI app still runs anywhere gradio is absent.
--r backend/requirements.txt
+# These pins need Python >= 3.11 (pandas 3.x does). A Gradio Space defaults to
+# Python 3.10, which cannot install them at all, so README.md's frontmatter
+# sets `python_version: "3.12"`. Check a change here against the target before
+# deploying, rather than finding out from a failed build:
+#
+#   pip install --dry-run --only-binary=:all: --python-version 3.12 \
+#       --target /tmp/check -r requirements.txt
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4
+requests==2.34.2
+feedparser==6.0.14
+pandas==3.0.5
+numpy==2.5.1
+python-dotenv==1.2.2
+beautifulsoup4==4.15.0
+scikit-learn==1.9.0
+playwright==1.62.0
+
+# gradio is deliberately absent. The Space image already provides the version
+# named by `sdk_version` in README.md's frontmatter, and pinning a second copy
+# here fights it. app.py imports gradio lazily, so the FastAPI app still runs
+# anywhere gradio is missing.
+
+# Removed: httpx (never imported), fuzzywuzzy + python-Levenshtein (never
+# imported — matching uses difflib and a hand-rolled Jaccard).
+
+# Test-only dependencies live in requirements-dev.txt so they stay out of the
+# deploy image. The suite itself is stdlib unittest and needs no runner:
+#   python -m unittest discover -s tests
+
+# Only needed to regenerate data/dmrc_gates.csv from the DMRC PDF.
+# Not imported at request time — keep it out of the runtime image if you care
+# about cold-start size.
+# pdfplumber==0.11.10
+
+# Optional: enables the 30k-row HuggingFace Hinglish small-talk corpus.
+# Without it the app silently falls back to data/hinglish_smalltalk.csv,
+# which has 4 rows. Adds ~400MB of deps (pyarrow etc) — enable deliberately.
+# datasets==4.4.1
