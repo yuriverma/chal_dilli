@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import bg2 from "../assets/bg2.MP4";
+import BackgroundVideo from "../components/BackgroundVideo";
 import { AUTH_API_URL, AUTH_ENABLED } from "../config";
 
 const LoginPage = () => {
@@ -238,14 +238,7 @@ const LoginPage = () => {
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden px-4">
 
       {/* Background video placeholder */}
-      <video
-  src={bg2}
-  autoPlay
-  loop
-  muted
-  playsInline
-  className="absolute top-0 left-0 w-full h-full object-cover -z-10"
-/>
+      <BackgroundVideo />
 
       <ToastContainer
         position="top-right"
