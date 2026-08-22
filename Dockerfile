@@ -50,9 +50,15 @@ EXPOSE 7860
 # a second worker would serve half the follow-ups from an empty store and
 # "and from there to Saket?" would fail at random.
 #
-# Measured footprint: ~77MB RSS once the routers are loaded, settling around
-# ~115MB after a mixed workload has warmed the pandas and TF-IDF paths. Fine
-# on a 512MB instance; two workers would not be. An earlier revision of this
-# comment claimed ~370MB per worker, which was never measured.
+# Measured footprint, on the interpreter process rather than the shell wrapper
+# (reading the wrapper is how earlier revisions of this comment got it wrong):
+# ~195MB RSS transiently while the startup scrape runs, settling to ~100MB
+# serving steady state. Comfortable on a 512MB instance with one worker.
+#
+# It used to be far worse. Deriving the bus graph from the raw 76MB
+# stop_times.csv spiked ~296MB on its own, which is where this comment's
+# original "~370MB" figure came from -- that number was real, just attached to
+# a load path that no longer exists. data/GTFS/bus_edges.csv is now the
+# committed 140KB edge list and loads in 0.03s instead of 4.5s.
 CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]
 

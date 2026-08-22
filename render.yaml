@@ -1,13 +1,15 @@
-# Render blueprint. Point Render at this repo and it picks this up.
+# Render blueprint — the FALLBACK host, kept working but not the primary.
 #
-# Chosen over Hugging Face Spaces for one concrete reason: data/GTFS/stop_times.csv
-# is 76MB, over the 10MB per-file limit for non-LFS files on a Space's git
-# remote. Render deploys straight from GitHub with no such limit, so there is
-# nothing to migrate to LFS.
+# Hugging Face Spaces is the primary target (see the Dockerfile and the deploy
+# section of the README). A free Render instance idles down after inactivity,
+# so the first visitor after a quiet spell waits for a cold boot, and for a
+# chat app that is the whole first impression.
 #
-# The tradeoff is that a free instance idles down after inactivity and the next
-# request waits for it to boot. The frontend handles that explicitly: a failed
-# request polls /init-status and says "waking up" rather than "not reachable".
+# This file briefly recommended Render over Spaces because
+# data/GTFS/stop_times.csv was 76MB, over the per-file limit for non-LFS files
+# on a Space's git remote. That file is gone — the derived graph in
+# bus_edges.csv replaced it — so Spaces now takes a plain git push and the
+# reason no longer applies.
 services:
   - type: web
     name: chal-dilli-backend

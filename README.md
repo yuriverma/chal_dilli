@@ -83,6 +83,40 @@ cp .env.example .env.local          # point VITE_BRAIN_API_URL at the backend
 npm run dev
 ```
 
+## Deploying
+
+The backend goes to a **Hugging Face Space** and the frontend to **Netlify**.
+Both are free, and unlike a free Render instance a Space does not idle down
+between visitors.
+
+**Backend.** Create a Space with SDK `docker` and the free CPU hardware, then
+push this repo to it. The `Dockerfile` already targets Spaces — it sets
+`PORT=7860`, which is what Spaces expects — and the frontmatter at the top of
+this README is the Space's config.
+
+```bash
+git remote add space https://huggingface.co/spaces/<user>/<space-name>
+git push space main
+```
+
+Every file in the repo is under 10MB, so this is a plain git push with no LFS
+setup. That is why `data/GTFS/bus_edges.csv` exists instead of the 76MB feed it
+is derived from.
+
+Set `ALLOWED_ORIGINS` to the frontend origin in the Space's settings once the
+frontend is up. `ADMIN_TOKEN` and `PARSEBOT_API_KEY` are optional — see the
+table below for what happens without them.
+
+**Frontend.** Point Netlify at this repo; `netlify.toml` already has the right
+base directory and SPA redirect. Set one build variable:
+
+```
+VITE_BRAIN_API_URL = https://<user>-<space-name>.hf.space
+```
+
+Leave `VITE_AUTH_API_URL` unset. `render.yaml` is kept as a working fallback if
+you would rather use Render.
+
 ## Configuration
 
 Everything external is an environment variable; nothing is hardcoded. Copy
@@ -123,9 +157,28 @@ prefer `pytest tests`, but nothing requires it.
 
 ## Data
 
-`data/` holds GTFS feeds for the metro and bus networks, the gate table, and
-the restaurant set. They are point-in-time snapshots: only metro *status* is
+`data/` holds the metro GTFS feed, the derived bus graph, the gate table and
+the restaurant set. These are point-in-time snapshots: only metro *status* is
 scraped live, so fares and station lists drift as the network changes.
-`backend/dmrc_gates_parser.py` regenerates the gate CSV from the DMRC PDF and
-needs `pdfplumber`, which is commented out of the requirements because nothing
-imports it at request time.
+
+Two files are generated rather than downloaded, and both have a script:
+
+- **`data/GTFS/bus_edges.csv`** — the DTC bus graph, 6,187 stop-to-stop edges.
+  The raw feed expresses this as 2.25 million `stop_times` rows (one per stop
+  per departure) of which the router reads three columns and discards the
+  timetable entirely. Committing the derived graph instead of the 76MB feed
+  cuts bus-router load from 4.5s to 0.03s and its peak memory from ~296MB to
+  ~22MB. Rebuild it after a feed refresh with:
+
+  ```bash
+  python scripts/build_bus_graph.py data/GTFS
+  ```
+
+  That needs the full feed, which is deliberately not committed — download a
+  current one from the DTC/OTD open data portal first. If `stop_times.csv` is
+  present the router will fall back to deriving the graph itself, so a fresh
+  feed works without running the script.
+
+- **`data/dmrc_gates.csv`** — station gate and lift guidance, from
+  `backend/dmrc_gates_parser.py` against the DMRC PDF. Needs `pdfplumber`,
+  commented out of the requirements because nothing imports it at request time.

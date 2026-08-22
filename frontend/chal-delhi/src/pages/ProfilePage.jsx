@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import bg2 from "../assets/bg2.MP4";
+import BackgroundVideo from "../components/BackgroundVideo";
 import { AUTH_API_URL, AUTH_ENABLED } from "../config";
 
 const ProfilePage = () => {
@@ -115,14 +115,7 @@ const ProfilePage = () => {
     <div className="relative min-h-screen w-full overflow-hidden">
 
   {/* Background Video */}
-  <video
-    src={bg2}
-    autoPlay
-    loop
-    muted
-    playsInline
-    className="absolute top-0 left-0 w-full h-full object-cover -z-10"
-  />
+  <BackgroundVideo />
       <ToastContainer
         position="top-right"
         autoClose={3000}
@@ -138,10 +131,18 @@ const ProfilePage = () => {
 
       {/* Header */}
       <div className="absolute top-4 md:top-8 left-1/2 transform -translate-x-1/2 z-30 px-4 text-center">
-        <h1 className="text-4xl md:text-7xl font-bold text-black mb-1 md:mb-2">
+        {/* See the note on ChattingPage's header: light on dark, because this
+            sits on the background artwork rather than on a panel. */}
+        <h1
+          className="text-4xl md:text-7xl font-bold text-amber-50 mb-1 md:mb-2"
+          style={{ textShadow: "0 2px 12px rgba(8, 16, 34, 0.75)" }}
+        >
           Chal Dilli
         </h1>
-        <p className="text-black text-center text-base md:text-lg font-semibold">
+        <p
+          className="text-amber-100 text-center text-base md:text-lg font-semibold"
+          style={{ textShadow: "0 1px 8px rgba(8, 16, 34, 0.8)" }}
+        >
           The only sathi for a Dilli vasi !!
         </p>
       </div>

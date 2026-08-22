@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import bg2 from "../assets/bg2.MP4";
+import BackgroundVideo from "../components/BackgroundVideo";
 import {
   AUTH_API_URL,
   AUTH_ENABLED,
@@ -137,6 +137,53 @@ const storeConversationId = (id) => {
   } catch {
     /* non-fatal, see above */
   }
+};
+
+// Markdown links the backend embeds in reply text, e.g. "[Zomato](https://...)".
+// Structured food results arrive separately in `recommendations` and get proper
+// buttons, but metro replies append their suggestions into the prose, and those
+// were rendering as literal "[Zomato](https://...)" in the bubble.
+const MARKDOWN_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+// A label with no URL behind it — the backend emits a bare "[Zomato]" when it
+// has no link. Showing the brackets just looks like something failed.
+const BARE_LABEL = /\[([^\]]+)\](?!\()/g;
+
+/**
+ * Render reply text, turning embedded markdown links into real anchors.
+ *
+ * Returns an array of strings and elements for React to render in place of the
+ * raw string.
+ */
+const renderBotText = (text) => {
+  if (!text) return text;
+
+  const parts = [];
+  let cursor = 0;
+  let match;
+  MARKDOWN_LINK.lastIndex = 0;
+
+  while ((match = MARKDOWN_LINK.exec(text)) !== null) {
+    if (match.index > cursor) {
+      parts.push(text.slice(cursor, match.index).replace(BARE_LABEL, "$1"));
+    }
+    parts.push(
+      <a
+        key={`${match.index}-${match[2]}`}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-amber-400/60 underline-offset-2 text-amber-200 hover:text-amber-100"
+      >
+        {match[1]}
+      </a>
+    );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor).replace(BARE_LABEL, "$1"));
+  }
+  return parts.length ? parts : text;
 };
 
 /**
@@ -302,22 +349,24 @@ const ChattingPage = () => {
   return (
      <div className="relative min-h-screen w-full overflow-hidden">
   {/* Background Video */}
-  <video
-    src={bg2}
-    autoPlay
-    loop
-    muted
-    playsInline
-    className="absolute top-0 left-0 w-full h-full object-cover -z-10"
-  />
+  <BackgroundVideo />
       {/* Header */}
       <div className="absolute top-2 md:top-4 left-1/2 transform -translate-x-1/2 z-30 px-4 text-center">
-        <h1 className="text-4xl md:text-7xl font-bold text-black mb-1 md:mb-2">
+        {/* Light with a dark shadow, not black: this sits directly on the
+            background artwork, whose top band is deep blue. Black was close to
+            unreadable there, and the video means the exact backdrop varies. */}
+        <h1
+          className="text-4xl md:text-7xl font-bold text-amber-50 mb-1 md:mb-2"
+          style={{ textShadow: "0 2px 12px rgba(8, 16, 34, 0.75)" }}
+        >
           Chal Dilli
         </h1>
-        <p className="text-black text-center text-sm md:text-lg font-semibold whitespace-nowrap">
+        <p
+          className="text-amber-100 text-center text-sm md:text-lg font-semibold whitespace-nowrap"
+          style={{ textShadow: "0 1px 8px rgba(8, 16, 34, 0.8)" }}
+        >
           The only sathi for a Dilli vasi !!
-        </p>  
+        </p>
       </div>
 
       {/* Hamburger Menu Button - Mobile Only */}
@@ -410,7 +459,7 @@ const ChattingPage = () => {
                           {m.resolvedContext}
                         </div>
                       )}
-                      {m.bot}
+                      {renderBotText(m.bot)}
                       {m.recommendations && (
                         <div className="mt-3 space-y-2 pt-2 border-t border-amber-700/30">
                           {m.recommendations.safe_pick && m.recommendations.safe_pick.zomato_url && (

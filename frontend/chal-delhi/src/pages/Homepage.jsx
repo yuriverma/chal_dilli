@@ -4,7 +4,7 @@
 
 
 import React, { useEffect, useRef, useState } from 'react';
-import bg2 from "../assets/bg2.MP4";
+import BackgroundVideo from "../components/BackgroundVideo";
 
 const LandingPage = () => {
   const audioRef = useRef(null);
@@ -42,14 +42,7 @@ const LandingPage = () => {
   return (
     <div className="min-h-screen w-full relative overflow-hidden font-mono">
       {/* Background Video */}
-      <video
-        src={bg2}
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="absolute top-0 left-0 w-full h-full object-cover -z-10"
-      />
+      <BackgroundVideo />
 
       {/* Background Audio */}
       <audio
