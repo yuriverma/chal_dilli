@@ -48,7 +48,11 @@ EXPOSE 7860
 # in-memory GTFS graph, so workers do not share that cost. More importantly,
 # conversation state (backend/conversation_state.py) lives in process memory:
 # a second worker would serve half the follow-ups from an empty store and
-# "and from there to Saket?" would fail at random. Measured footprint is
-# ~45MB RSS, not the ~370MB an earlier revision of this comment claimed.
+# "and from there to Saket?" would fail at random.
+#
+# Measured footprint: ~77MB RSS once the routers are loaded, settling around
+# ~115MB after a mixed workload has warmed the pandas and TF-IDF paths. Fine
+# on a 512MB instance; two workers would not be. An earlier revision of this
+# comment claimed ~370MB per worker, which was never measured.
 CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]
 
