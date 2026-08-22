@@ -1,10 +1,11 @@
 ---
-title: Chal Dilli API
+title: Chal Dilli
 emoji: 🚇
 colorFrom: indigo
 colorTo: pink
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 6.25.0
+app_file: app.py
 pinned: false
 ---
 
@@ -89,15 +90,31 @@ The backend goes to a **Hugging Face Space** and the frontend to **Netlify**.
 Both are free, and unlike a free Render instance a Space does not idle down
 between visitors.
 
-**Backend.** Create a Space with SDK `docker` and the free CPU hardware, then
-push this repo to it. The `Dockerfile` already targets Spaces — it sets
-`PORT=7860`, which is what Spaces expects — and the frontmatter at the top of
-this README is the Space's config.
+**Backend.** Create a Space with SDK **Gradio** — not Docker, which is a paid
+feature — on the free CPU hardware, then push this repo to it:
 
 ```bash
 git remote add space https://huggingface.co/spaces/<user>/<space-name>
 git push space main
 ```
+
+The frontmatter at the top of this README is the Space's config, and `app.py`
+is the entrypoint. A Gradio Space runs `app.py` and proxies port 7860; it does
+not require the app to be *only* Gradio, so `app.py` mounts a small Gradio chat
+onto the FastAPI app and serves both from one process:
+
+| path | what |
+|---|---|
+| `/` | Gradio chat, so the Space works on its own |
+| `/chat` | the JSON API the frontend calls |
+| `/health`, `/init-status` | readiness |
+| `/api` | endpoint listing |
+| `/docs` | FastAPI's generated docs |
+
+The Gradio chat is not a second implementation — it calls the same orchestrator
+the API route calls, with its own conversation id in session state, so
+follow-ups work there too. Useful for checking the backend without the
+frontend deployed.
 
 Every file in the repo is under 10MB, so this is a plain git push with no LFS
 setup. That is why `data/GTFS/bus_edges.csv` exists instead of the 76MB feed it
@@ -106,6 +123,9 @@ is derived from.
 Set `ALLOWED_ORIGINS` to the frontend origin in the Space's settings once the
 frontend is up. `ADMIN_TOKEN` and `PARSEBOT_API_KEY` are optional — see the
 table below for what happens without them.
+
+Run the same thing locally with `python app.py`. The `Dockerfile` is still
+current and is what `render.yaml` and any other Docker host would use.
 
 **Frontend.** Point Netlify at this repo; `netlify.toml` already has the right
 base directory and SPA redirect. Set one build variable:

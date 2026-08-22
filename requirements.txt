@@ -1,0 +1,8 @@
+# Hugging Face Spaces installs from the repo root, so this points at the real
+# list rather than duplicating it (duplicates drift).
+#
+# gradio is deliberately not pinned here: the Space image already provides the
+# version named by `sdk_version` in README.md's frontmatter, and pinning a
+# second copy in this file fights it. app.py imports gradio lazily so the
+# FastAPI app still runs anywhere gradio is absent.
+-r backend/requirements.txt
