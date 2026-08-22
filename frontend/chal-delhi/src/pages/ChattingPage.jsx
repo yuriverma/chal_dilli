@@ -139,6 +139,53 @@ const storeConversationId = (id) => {
   }
 };
 
+// Markdown links the backend embeds in reply text, e.g. "[Zomato](https://...)".
+// Structured food results arrive separately in `recommendations` and get proper
+// buttons, but metro replies append their suggestions into the prose, and those
+// were rendering as literal "[Zomato](https://...)" in the bubble.
+const MARKDOWN_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+// A label with no URL behind it — the backend emits a bare "[Zomato]" when it
+// has no link. Showing the brackets just looks like something failed.
+const BARE_LABEL = /\[([^\]]+)\](?!\()/g;
+
+/**
+ * Render reply text, turning embedded markdown links into real anchors.
+ *
+ * Returns an array of strings and elements for React to render in place of the
+ * raw string.
+ */
+const renderBotText = (text) => {
+  if (!text) return text;
+
+  const parts = [];
+  let cursor = 0;
+  let match;
+  MARKDOWN_LINK.lastIndex = 0;
+
+  while ((match = MARKDOWN_LINK.exec(text)) !== null) {
+    if (match.index > cursor) {
+      parts.push(text.slice(cursor, match.index).replace(BARE_LABEL, "$1"));
+    }
+    parts.push(
+      <a
+        key={`${match.index}-${match[2]}`}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-amber-400/60 underline-offset-2 text-amber-200 hover:text-amber-100"
+      >
+        {match[1]}
+      </a>
+    );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor).replace(BARE_LABEL, "$1"));
+  }
+  return parts.length ? parts : text;
+};
+
 /**
  * Work out why a chat request failed, so the message can say something true.
  *
@@ -412,7 +459,7 @@ const ChattingPage = () => {
                           {m.resolvedContext}
                         </div>
                       )}
-                      {m.bot}
+                      {renderBotText(m.bot)}
                       {m.recommendations && (
                         <div className="mt-3 space-y-2 pt-2 border-t border-amber-700/30">
                           {m.recommendations.safe_pick && m.recommendations.safe_pick.zomato_url && (
