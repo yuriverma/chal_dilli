@@ -5,6 +5,14 @@
 # second copy under backend/ instead would just drift, so there is one file and
 # everything points at it: the Dockerfile, render.yaml, nixpacks.toml and
 # railway.json all install this.
+#
+# These pins need Python >= 3.11 (pandas 3.x does). A Gradio Space defaults to
+# Python 3.10, which cannot install them at all, so README.md's frontmatter
+# sets `python_version: "3.12"`. Check a change here against the target before
+# deploying, rather than finding out from a failed build:
+#
+#   pip install --dry-run --only-binary=:all: --python-version 3.12 \
+#       --target /tmp/check -r requirements.txt
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
 pydantic==2.13.4
