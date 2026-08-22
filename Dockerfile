@@ -36,12 +36,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Playwright browsers (system deps already installed above)
 RUN playwright install chromium
 
-# Copy application code
+# Copy application code (see .dockerignore — the 67MB of unused GTFS fare
+# tables and the frontend are excluded)
 COPY . .
 
-# Expose port (Railway sets PORT env var)
-EXPOSE 8080
+# Default suits Hugging Face Spaces; Railway/Render/Fly inject their own PORT.
+ENV PORT=7860
+EXPOSE 7860
 
-# Start command - use shell form to expand PORT env var
-CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Single worker on purpose: each worker builds its own in-memory GTFS graph
+# (~370MB RSS), so 2 workers would OOM anything under 1GB.
+CMD ["sh", "-c", "uvicorn backend.api_server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]
 

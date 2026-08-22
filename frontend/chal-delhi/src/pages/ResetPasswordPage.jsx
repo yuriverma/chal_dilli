@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import bg2 from "../assets/bg2.MP4";
+import { AUTH_API_URL, AUTH_ENABLED } from "../config";
 
 const ResetPasswordPage = () => {
   const [loading, setLoading] = useState(false);
@@ -16,7 +17,7 @@ const ResetPasswordPage = () => {
   });
 
   // API base URL
-  const API_BASE_URL = 'https://cd-back-hnlv.onrender.com/api';
+  const API_BASE_URL = `${AUTH_API_URL}/api`;
 
   // Extract token and id from URL on mount
   useEffect(() => {

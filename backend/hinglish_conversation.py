@@ -13,6 +13,7 @@ import threading
 import random
 import os
 import csv
+import re
 
 try:
     from datasets import load_dataset  # type: ignore
@@ -28,27 +29,32 @@ except Exception:
 
 
 def _normalize_text(s: str) -> str:
+    """Expand common Hinglish shorthand to a canonical spelling.
+
+    These are WHOLE-WORD substitutions. The previous implementation used
+    ``str.replace``, so the entry ``"h" -> "hai"`` rewrote every letter 'h' in
+    the string: "kya chal raha hai" became "kya chaial rahaia haiai". That
+    corrupted both the indexed corpus and the query, badly degrading the
+    TF-IDF match quality.
+    """
     s = (s or "").strip().lower()
-    # Common Hinglish shorthand expansions
+    # Common Hinglish shorthand expansions, applied per token.
     replacements = {
         "rha": "raha",
         "rhe": "rahe",
         "rhi": "rahi",
         "karliya": "kar liya",
-        "karliya?": "kar liya?",
         "karliye": "kar liye",
-        "kar diya": "kar diya",
         "kesa": "kaisa",
-        "aisa": "aisa",
+        "kese": "kaise",
         "h": "hai",
-        "kya chal rha": "kya chal raha",
-        "kya chal rh": "kya chal raha",
-        "kya kar rha": "kya kar raha",
-        "mood kaisa": "mood kaisa",
+        "hn": "haan",
+        "nhi": "nahi",
+        "kr": "kar",
+        "kya": "kya",
     }
-    for a, b in replacements.items():
-        s = s.replace(a, b)
-    return s
+    tokens = re.split(r"(\W+)", s)  # keep separators so spacing survives
+    return "".join(replacements.get(t, t) for t in tokens)
 
 
 @dataclass

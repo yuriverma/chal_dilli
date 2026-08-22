@@ -4,6 +4,7 @@ ParseBot wrapper for technical events / hackathons (e.g., Unstop listings).
 Provides a helper to call ParseBot's get_all_open_events_details scraper.
 """
 
+import os
 from typing import Any, Dict
 
 import requests
@@ -14,11 +15,15 @@ from pydantic import BaseModel
 # Configuration
 # ============================================================================
 
-# TODO: replace with your real ParseBot API key for the technical events scraper
-PARSEBOT_TECH_API_KEY = "cbd3aaa1-7c92-4e8a-9f4e-17e857ff3845"
-PARSEBOT_TECH_URL = (
+# Secrets come from the environment. Falls back to PARSEBOT_API_KEY since both
+# scrapers historically shared one key. The old hardcoded value is compromised.
+PARSEBOT_TECH_API_KEY = os.getenv(
+    "PARSEBOT_TECH_API_KEY", os.getenv("PARSEBOT_API_KEY", "")
+)
+PARSEBOT_TECH_URL = os.getenv(
+    "PARSEBOT_TECH_URL",
     "https://api.parse.bot/scraper/"
-    "0603aa4e-995d-4a8c-b59b-45ad1e0ee348/get_all_open_events_details"
+    "0603aa4e-995d-4a8c-b59b-45ad1e0ee348/get_all_open_events_details",
 )
 
 
@@ -34,8 +39,8 @@ def call_technical_events_parsebot(page_url: str) -> Dict[str, Any]:
     """
     if not PARSEBOT_TECH_API_KEY or PARSEBOT_TECH_API_KEY == "YOUR_API_KEY_HERE":
         raise HTTPException(
-            status_code=500,
-            detail="PARSEBOT_TECH_API_KEY is not set in parsebot_technical_events.py",
+            status_code=503,
+            detail="Technical events are unavailable: PARSEBOT_TECH_API_KEY is not configured.",
         )
 
     headers = {

@@ -31,6 +31,7 @@ Quick start:
      }'
 """
 
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -50,11 +51,14 @@ except ImportError:
 # Configuration
 # ============================================================================
 
-# TODO: put your real ParseBot API key here
-PARSEBOT_API_KEY = "cbd3aaa1-7c92-4e8a-9f4e-17e857ff3845"
-PARSEBOT_URL = (
+# Secrets come from the environment. The previously hardcoded key was committed
+# to a public repo and must be treated as compromised — rotate it in Parse.bot
+# and set PARSEBOT_API_KEY in your host's env config.
+PARSEBOT_API_KEY = os.getenv("PARSEBOT_API_KEY", "")
+PARSEBOT_URL = os.getenv(
+    "PARSEBOT_EVENTS_URL",
     "https://api.parse.bot/scraper/"
-    "8316d1dd-be67-469a-9aa4-708ac5172714/parse_events_from_html"
+    "8316d1dd-be67-469a-9aa4-708ac5172714/parse_events_from_html",
 )
 
 # ============================================================================
@@ -183,8 +187,8 @@ def call_parsebot(html: str, debug: bool = False) -> Dict[str, Any]:
     """
     if not PARSEBOT_API_KEY:
         raise HTTPException(
-            status_code=500,
-            detail="PARSEBOT_API_KEY is not set in parsebot_from_url.py",
+            status_code=503,
+            detail="Events are unavailable: PARSEBOT_API_KEY is not configured.",
         )
 
     headers = {

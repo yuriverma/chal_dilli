@@ -1,15 +1,24 @@
-fastapi
-uvicorn[standard]
-pydantic
-requests
-httpx
-feedparser
-pandas
-numpy
-python-dotenv
-beautifulsoup4
-pdfplumber
-scikit-learn
-playwright
-fuzzywuzzy
-python-Levenshtein
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4
+requests==2.34.2
+feedparser==6.0.14
+pandas==3.0.5
+numpy==2.5.1
+python-dotenv==1.2.2
+beautifulsoup4==4.15.0
+scikit-learn==1.9.0
+playwright==1.62.0
+
+# Removed: httpx (never imported), fuzzywuzzy + python-Levenshtein (never
+# imported — matching uses difflib and a hand-rolled Jaccard).
+
+# Only needed to regenerate data/dmrc_gates.csv from the DMRC PDF.
+# Not imported at request time — keep it out of the runtime image if you care
+# about cold-start size.
+# pdfplumber==0.11.10
+
+# Optional: enables the 30k-row HuggingFace Hinglish small-talk corpus.
+# Without it the app silently falls back to data/hinglish_smalltalk.csv,
+# which has 4 rows. Adds ~400MB of deps (pyarrow etc) — enable deliberately.
+# datasets==4.4.1

@@ -44,7 +44,7 @@ AREA_COORDINATES = {
     "vasundhara": (28.6500, 77.3800),
     "mayur vihar": (28.6000, 77.3000),
     "laxmi nagar": (28.6400, 77.2800),
-    "preet vihar": (28.6300, 28.6300),
+    "preet vihar": (28.6417, 77.2947),
     "kashmere gate": (28.6692, 77.2285),
     "new delhi": (28.6139, 77.2090),
     "old delhi": (28.6562, 77.2410),

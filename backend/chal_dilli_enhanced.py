@@ -20,6 +20,12 @@ from dtc_router import DTCRouter
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _DATA_DIR = _BASE_DIR / "data"
 
+# Whole-word greeting match. `\b` matters: plain substring checks make "hi"
+# match "delhi"/"which"/"this" and swallow real queries.
+_GREETING_RE = re.compile(
+    r"\b(hi|hello|hey|namaste|hola|yo|sup|kaise ho|kya haal|how are you)\b"
+)
+
 class ChalDilliEnhanced:
     def __init__(self):
         self.scraper = DelhiDataScraper()
@@ -161,24 +167,24 @@ class ChalDilliEnhanced:
             # Default to Connaught Place coordinates if no location provided
             # In future, could use browser geolocation API
             default_lat, default_lon = 28.6315, 77.2167  # Connaught Place
-            recommendations = recommend_for_location(default_lat, default_lon, radius_km=5)
+            recommendations = recommend_for_location(default_lat, default_lon, radius_km=5, dish=food_type)
             area_name = "Connaught Place"  # For display purposes
         elif coords:
             # Use coordinates
             lat, lon = coords
-            recommendations = recommend_for_location(lat, lon, radius_km=5)
+            recommendations = recommend_for_location(lat, lon, radius_km=5, dish=food_type)
         elif area_name:
             # Try area-based recommendation
-            recommendations = recommend_by_area(area_name, city="Delhi")
+            recommendations = recommend_by_area(area_name, city="Delhi", dish=food_type)
             # If that fails, try to get coordinates
             if not recommendations.get('safe_pick') and not recommendations.get('local_favourite'):
                 coords = get_area_coordinates(area_name)
                 if coords:
                     lat, lon = coords
-                    recommendations = recommend_for_location(lat, lon, radius_km=5)
+                    recommendations = recommend_for_location(lat, lon, radius_km=5, dish=food_type)
         else:
             # Try text query matching
-            recommendations = recommend_for_text_query(query, city="Delhi")
+            recommendations = recommend_for_text_query(query, city="Delhi", dish=food_type)
         
         # Format response
         if recommendations and (recommendations.get('safe_pick') or recommendations.get('local_favourite')):
@@ -370,12 +376,20 @@ class ChalDilliEnhanced:
             r"fastest\s+metro\s+from\s+\w+",
             r"metro\s+route\s+between\s+\w+",
             r"route\s+between\s+\w+.*\s+metro",
+            # "route <src> to <dst>" without the word "from"
+            r"\broute\s+.+\s+to\s+.+",
+            # "between X and Y"
+            r"\bbetween\s+.+\s+and\s+.+",
         ]
-        
-        # Hinglish route patterns
+
+        # Hinglish route patterns.
+        # The old first pattern was `\w+ se \w+ (kaise|how|route)`, which only
+        # matched single-word destinations — "rajiv chowk se hauz khas kaise
+        # jaaye" failed because "khas" sat between "hauz" and "kaise".
         hinglish_metro_patterns = [
-            r"\w+\s+se\s+\w+\s+(kaise|how|route)",
-            r"kaise\s+(jaana|jao|jaiye|pahunch)",
+            r"\bse\b.+\b(kaise|kaise|kese|how|route|jaana|jana)\b",
+            r"\bse\b.+\btak\b",
+            r"kaise\s+(jaana|jana|jao|jaiye|jaaye|jaye|jaun|jaaun|jau|pahunch|pahunche)",
             r"fastest\s+(route|way|metro)",
         ]
         
@@ -528,8 +542,12 @@ class ChalDilliEnhanced:
         if any(word in query_lower for word in ["weather", "temperature", "climate"]):
             return self.get_weather_response()
         
-        # Check for greeting
-        if any(word in query_lower for word in ["hi", "hello", "hey", "namaste", "kaise ho", "how are you"]):
+        # Check for greeting.
+        # Must be a whole-word match: a substring test makes "hi" fire on
+        # "delhi", "which", "this", which shadowed almost every English query.
+        # Also require the greeting to be the whole message (or nearly), so
+        # "hi, dwarka se cp kaise jaun" still routes to the metro pipeline.
+        if _GREETING_RE.search(query_lower) and len(query_lower.split()) <= 4:
             return self.get_greeting_response()
         
         # Check for bus/DTC queries first (before metro to avoid conflicts)

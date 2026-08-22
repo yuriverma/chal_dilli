@@ -4,12 +4,13 @@ CHAL DILLI - FastAPI Server
 Backend API for Delhi's Smart AI Assistant
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,14 @@ from pathlib import Path
 _BACKEND_DIR = Path(__file__).resolve().parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
+
+# Load .env for local development. Hosts inject real env vars directly, so a
+# missing file is fine.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_BACKEND_DIR.parent / ".env")
+except Exception:
+    pass
 
 # Import ParseBot helpers so we can expose the same endpoint on this main app
 try:
@@ -69,11 +78,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for frontend integration
+# CORS middleware for frontend integration.
+# Set ALLOWED_ORIGINS to a comma-separated list of frontend URLs in production,
+# e.g. ALLOWED_ORIGINS="https://chal-dilli.netlify.app,http://localhost:5173".
+# Note: "*" and allow_credentials=True are mutually exclusive per the CORS spec —
+# browsers reject that combination — so credentials are only enabled when the
+# origins are explicitly listed.
+_allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*").strip()
+if _allowed_origins_raw == "*":
+    _allowed_origins = ["*"]
+    _allow_credentials = False
+else:
+    _allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -148,9 +170,11 @@ class QueryResponse(BaseModel):
     response: str
     query: str
     timestamp: str
-    metro_status: str
-    language: str
-    data_freshness: str
+    metro_status: str = "Unknown"
+    language: str = "hinglish"
+    # Optional: the scraper has not run yet during the first seconds after boot,
+    # so this is legitimately null on early requests. It must NOT be required.
+    data_freshness: Optional[str] = None
     recommendations: Optional[Dict[str, Any]] = None  # Structured recommendations for food queries
 
 class HealthResponse(BaseModel):
@@ -250,13 +274,19 @@ async def chat_endpoint(request: QueryRequest):
         if not isinstance(response, dict):
             response = {"response": str(response)}
         
-        # Fill in missing fields
-        response.setdefault("query", request.query)
-        response.setdefault("timestamp", datetime.now().isoformat())
-        response.setdefault("metro_status", chal_dilli.metro_data.get("status", "All lines operational"))
-        response.setdefault("language", "hinglish")
-        response.setdefault("data_freshness", datetime.now().isoformat())
+        # Fill in missing fields. Use explicit None checks, not setdefault: the
+        # orchestrator returns these keys with a None value before the first
+        # scraper run, and setdefault would leave the None in place.
+        def _fill(key, fallback):
+            if response.get(key) is None:
+                response[key] = fallback
+
+        _fill("query", request.query)
+        _fill("timestamp", datetime.now().isoformat())
+        _fill("metro_status", chal_dilli.metro_data.get("status", "All lines operational"))
+        _fill("language", "hinglish")
         response.setdefault("recommendations", None)
+        # data_freshness stays None until the first scraper run — that is valid.
         
         return QueryResponse(**response)
     except Exception as e:
@@ -387,10 +417,23 @@ async def data_summary():
     return chal_dilli.get_data_summary()
 
 @app.post("/update-data")
-async def update_data():
-    """Manually trigger data update"""
+async def update_data(x_admin_token: str = Header(default="")):
+    """Manually trigger data update.
+
+    This kicks off network scraping and is expensive, so it is gated behind
+    ADMIN_TOKEN. If ADMIN_TOKEN is unset the endpoint is disabled entirely
+    rather than left open to the internet.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token:
+        raise HTTPException(status_code=404, detail="Not found")
+    if x_admin_token != admin_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if chal_dilli is None:
+        raise HTTPException(status_code=503, detail="System still initializing")
     try:
-        chal_dilli.update_data()
+        # Offload the blocking scrape so it cannot stall the event loop.
+        await asyncio.to_thread(chal_dilli.update_data)
         return {"status": "success", "message": "Data updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
